@@ -390,7 +390,11 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         data = json.loads(request.body)
         part = Part.objects.filter(id=data['pk'])[0]
         
-        print(f"\n[ADD_SUPPLIER_PART] Request data: {data}")
+        print(f"\n[ADD_SUPPLIER_PART] ================================================")
+        print(f"[ADD_SUPPLIER_PART] Request data: {data}")
+        print(f"[ADD_SUPPLIER_PART] InvenTree Part ID: {part.pk}")
+        print(f"[ADD_SUPPLIER_PART] InvenTree Part Name: {part.name}")
+        print(f"[ADD_SUPPLIER_PART] InvenTree Part IPN: {part.IPN}")
         
         # Map supplier name to PK (data['supplier'] is the name like 'digikey' or 'mouser')
         supplier_name = data['supplier'].lower()
@@ -416,14 +420,32 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             return JsonResponse({"message": "Please provide part number"})
         
         manufacturer_part = ManufacturerPart.objects.filter(part=data['pk'])
-        print(f"[ADD_SUPPLIER_PART] Found {len(manufacturer_part)} manufacturer parts for this InvenTree part")
+        print(f"[ADD_SUPPLIER_PART] Manufacturer parts query returned {len(manufacturer_part)} results")
         
         if len(manufacturer_part) == 0:
             print(f"[ADD_SUPPLIER_PART] ✗ Part has no manufacturer part - this is required!")
             return JsonResponse({"message": "Part has no manufacturer part"})
+        
+        # Show details of manufacturer parts
+        for idx, mp in enumerate(manufacturer_part):
+            print(f"[ADD_SUPPLIER_PART] Manufacturer Part {idx+1}:")
+            print(f"  - PK: {mp.pk}")
+            print(f"  - MPN: {mp.MPN}")
+            print(f"  - Manufacturer: {mp.manufacturer.name if mp.manufacturer else 'None'}")
+        
+        # Check existing supplier parts
         supplier_parts = SupplierPart.objects.filter(part=data['pk'])
+        print(f"[ADD_SUPPLIER_PART] Found {len(supplier_parts)} existing supplier parts for this InvenTree part")
+        
+        for idx, sp in enumerate(supplier_parts):
+            print(f"[ADD_SUPPLIER_PART] Existing Supplier Part {idx+1}:")
+            print(f"  - Supplier: {sp.supplier.name}")
+            print(f"  - SKU: '{sp.SKU}'")
+            print(f"  - MPN: {sp.manufacturer_part.MPN if sp.manufacturer_part else 'None'}")
+        
         for sp in supplier_parts:
             if sp.SKU.strip() == data['sku']:
+                print(f"[ADD_SUPPLIER_PART] ✗ Supplier part with SKU '{data['sku']}' already exists!")
                 return JsonResponse({"message": "Supplierpart with this SKU already exists"})
 
         # Map supplier name to the format expected by get_partdata
