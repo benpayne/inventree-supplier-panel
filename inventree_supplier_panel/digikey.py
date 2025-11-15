@@ -83,21 +83,36 @@ class Digikey():
 
     def create_digikey_cart(self, order):
         cart_data = {}
+        from datetime import datetime
         list_name = MetaAccess.get_value(self, order, 'DigiKeyListName')
         if list_name is None:
-            list_name = order.reference + '-00'
-        version = int(list_name[len(list_name) - 2:]) + 1
+            # Use timestamp for more uniqueness
+            timestamp = datetime.now().strftime('%y%m%d-%H%M%S')
+            list_name = f"{order.reference}-{timestamp}"
+        else:
+            # Extract base and increment version
+            parts = list_name.rsplit('-', 1)
+            if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 2:
+                version = int(parts[1]) + 1
+                list_name = f"{parts[0]}-{str(version).zfill(2)}"
+            else:
+                # Fallback: append timestamp
+                timestamp = datetime.now().strftime('%y%m%d-%H%M%S')
+                list_name = f"{order.reference}-{timestamp}"
+        
         token = Digikey.refresh_digikey_access_token(self)
 
         if token['status_code'] != 200:
             cart_data['error_status'] = token['message']
             return cart_data
-        list_name = order.reference + '-' + str(version).zfill(2)
-        i = version
+        
+        # Try to find a valid unique name
+        i = 0
+        original_list_name = list_name
         while not Digikey.check_valid_listname(self, list_name):
             i = i + 1
-            list_name = order.reference + '-' + str(i).zfill(2)
-            if i == version + 20:
+            list_name = f"{original_list_name}-{str(i).zfill(2)}"
+            if i >= 20:
                 cart_data['ID'] = ''
                 cart_data['error_status'] = 'No valid list name found within 20 attempts'
                 return cart_data
