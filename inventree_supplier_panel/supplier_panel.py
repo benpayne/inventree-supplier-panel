@@ -243,32 +243,6 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         return panels
 
-    def get_ui_features(self, request, context, **kwargs):
-        """Return UI features including the token setup panel in settings."""
-        features = []
-        
-        # Add the token setup feature that shows in plugin settings
-        if request.user.is_staff:
-            client_id = self.get_setting('DIGIKEY_CLIENT_ID')
-            has_token = bool(self.get_setting('DIGIKEY_TOKEN'))
-            has_refresh = bool(self.get_setting('DIGIKEY_REFRESH_TOKEN'))
-            
-            features.append({
-                'feature_type': 'panel',
-                'key': 'digikey-token-setup',
-                'title': 'Digikey OAuth Token Setup',
-                'description': 'Configure Digikey API access tokens',
-                'icon': 'ti:key',
-                'source': self.plugin_static_file('admin_token_setup.js'),
-                'context': {
-                    'client_id': client_id or '',
-                    'has_token': has_token,
-                    'has_refresh_token': has_refresh
-                }
-            })
-        
-        return features
-
     def _load_registered_suppliers(self):
         """Helper to load supplier PKs from settings."""
         try:
