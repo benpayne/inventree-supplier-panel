@@ -30,47 +30,16 @@ export function renderPanel(target, data) {
 }
 
 /**
- * Fetch registered suppliers from the plugin settings
+ * Fetch registered suppliers - simple hardcoded list
+ * The backend will validate which suppliers are actually configured
  */
 async function fetchRegisteredSuppliers(partPk) {
-    // Fetch the supplier PKs from the plugin settings API
-    try {
-        const response = await fetch('/api/plugins/suppliercart/settings/');
-        if (!response.ok) {
-            throw new Error('Failed to fetch plugin settings');
-        }
-        
-        const settingsArray = await response.json();
-        const suppliers = [];
-        
-        // Convert array to key-value map
-        const settings = {};
-        settingsArray.forEach(setting => {
-            if (setting.key && setting.value) {
-                settings[setting.key] = setting.value;
-            }
-        });
-        
-        // Map settings to supplier list (only add if PK is set and not empty)
-        if (settings.DIGIKEY_PK && settings.DIGIKEY_PK !== '') {
-            suppliers.push({ name: 'Digikey', value: settings.DIGIKEY_PK, key: 'digikey' });
-        }
-        if (settings.MOUSER_PK && settings.MOUSER_PK !== '') {
-            suppliers.push({ name: 'Mouser', value: settings.MOUSER_PK, key: 'mouser' });
-        }
-        if (settings.FARNELL_PK && settings.FARNELL_PK !== '') {
-            suppliers.push({ name: 'Farnell', value: settings.FARNELL_PK, key: 'farnell' });
-        }
-        
-        if (suppliers.length === 0) {
-            throw new Error('No suppliers configured. Please configure suppliers in plugin settings.');
-        }
-        
-        return suppliers;
-    } catch (error) {
-        console.error('Error fetching supplier settings:', error);
-        throw error;
-    }
+    // Return hardcoded list - backend will handle validation
+    return [
+        { name: 'Digikey', value: 'digikey' },
+        { name: 'Mouser', value: 'mouser' },
+        { name: 'Farnell', value: 'farnell' }
+    ];
 }
 
 /**

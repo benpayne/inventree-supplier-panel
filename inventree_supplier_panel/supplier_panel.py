@@ -243,35 +243,31 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         return panels
 
-    def get_ui_dashboard_items(self, request, context, **kwargs):
-        """Return custom dashboard items for admin users."""
-        items = []
+    def get_ui_features(self, request, context, **kwargs):
+        """Return UI features including the token setup panel in settings."""
+        features = []
         
-        # Only show to admin/staff users
+        # Add the token setup feature that shows in plugin settings
         if request.user.is_staff:
-            # Check if we have the client ID configured
             client_id = self.get_setting('DIGIKEY_CLIENT_ID')
             has_token = bool(self.get_setting('DIGIKEY_TOKEN'))
             has_refresh = bool(self.get_setting('DIGIKEY_REFRESH_TOKEN'))
             
-            items.append({
+            features.append({
+                'feature_type': 'panel',
                 'key': 'digikey-token-setup',
-                'title': 'Digikey Token Setup',
-                'description': 'Configure OAuth tokens for Digikey API access',
-                'icon': 'ti:key:outline',
+                'title': 'Digikey OAuth Token Setup',
+                'description': 'Configure Digikey API access tokens',
+                'icon': 'ti:key',
                 'source': self.plugin_static_file('admin_token_setup.js'),
                 'context': {
                     'client_id': client_id or '',
                     'has_token': has_token,
                     'has_refresh_token': has_refresh
-                },
-                'options': {
-                    'width': 4,
-                    'height': 3
                 }
             })
         
-        return items
+        return features
 
     def _load_registered_suppliers(self):
         """Helper to load supplier PKs from settings."""
@@ -399,7 +395,21 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
     def add_supplierpart(self, request):
         data = json.loads(request.body)
         part = Part.objects.filter(id=data['pk'])[0]
-        supplier = Company.objects.filter(id=data['supplier'])[0]
+        
+        # Map supplier name to PK (data['supplier'] is the name like 'digikey' or 'mouser')
+        supplier_name = data['supplier'].lower()
+        supplier_map = {
+            'digikey': self.get_setting('DIGIKEY_PK'),
+            'mouser': self.get_setting('MOUSER_PK'),
+            'farnell': self.get_setting('FARNELL_PK')
+        }
+        
+        supplier_pk = supplier_map.get(supplier_name)
+        if not supplier_pk:
+            return JsonResponse({"message": f"Supplier '{data['supplier']}' not configured"})
+        
+        supplier = Company.objects.filter(id=supplier_pk)[0]
+        
         data['sku'] = data['sku'].strip()
         if (data['sku'] == ''):
             return JsonResponse({"message": "Please provide part number"})
@@ -411,23 +421,26 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             if sp.SKU.strip() == data['sku']:
                 return JsonResponse({"message": "Supplierpart with this SKU already exists"})
 
+        # Map supplier name to the format expected by get_partdata
+        supplier_name_for_api = supplier_name.capitalize()  # 'digikey' -> 'Digikey'
+        
         # Here start the new interface
-        data = self.get_partdata(data['supplier'], data['sku'], 'exact')
-        if data['error_status'] != 'OK':
-            return JsonResponse({"message": data['error_status']})
-        if data['number_of_results'] == 0:
+        data_result = self.get_partdata(supplier_name_for_api, data['sku'], 'exact')
+        if data_result['error_status'] != 'OK':
+            return JsonResponse({"message": data_result['error_status']})
+        if data_result['number_of_results'] == 0:
             return JsonResponse({"message": "Part not found"})
         sp = SupplierPart.objects.create(part=part,
                                          supplier=supplier,
                                          manufacturer_part=manufacturer_part[0],
-                                         SKU=data['SKU'],
-                                         link=data['URL'],
-                                         note=data['lifecycle_status'],
-                                         packaging=data['package'],
-                                         pack_quantity=data['pack_quantity'],
-                                         description=data['description'],
+                                         SKU=data_result['SKU'],
+                                         link=data_result['URL'],
+                                         note=data_result['lifecycle_status'],
+                                         packaging=data_result['package'],
+                                         pack_quantity=data_result['pack_quantity'],
+                                         description=data_result['description'],
                                          )
-        for pb in data['price_breaks']:
+        for pb in data_result['price_breaks']:
             SupplierPriceBreak.objects.create(part=sp, quantity=pb['Quantity'], price=pb['Price'], price_currency=pb['Currency'])
         return JsonResponse({"message": "OK"})
 
