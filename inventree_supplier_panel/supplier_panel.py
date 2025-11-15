@@ -148,7 +148,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 # ----------------------------------------------------------------------------
 # Create the panels using the new UserInterfaceMixin API
 
-    def get_ui_features(self, feature_type, context, **kwargs):
+    def get_ui_features(self, feature_type, **kwargs):
         """Return UI features such as navigation items."""
         if feature_type == 'navigation':
             return [{
