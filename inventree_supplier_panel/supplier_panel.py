@@ -171,18 +171,27 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         panels = []
         target_model = context.get('target_model')
         target_id = context.get('target_id')
+        
+        print(f"\n[GET_UI_PANELS] Called with target_model={target_model}, target_id={target_id}")
 
         # Load registered suppliers from settings
         self._load_registered_suppliers()
+        
+        print(f"[GET_UI_PANELS] Registered suppliers:")
+        for name, info in self.registered_suppliers.items():
+            print(f"  {name}: is_registered={info.get('is_registered')}, pk={info.get('pk')}")
 
         # For Purchase Orders: PO transfer panels
         if target_model == 'purchaseorder' and target_id:
+            print(f"[GET_UI_PANELS] Processing purchase order {target_id}")
             # Check permissions
             has_permission = (
                 check_user_role(request.user, 'purchase_order', 'change') or
                 check_user_role(request.user, 'purchase_order', 'delete') or
                 check_user_role(request.user, 'purchase_order', 'add')
             )
+            
+            print(f"[GET_UI_PANELS] User has permission: {has_permission}")
 
             if not has_permission:
                 return panels
@@ -190,16 +199,19 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             # Get the PO and check supplier
             try:
                 po = PurchaseOrder.objects.get(pk=target_id)
+                print(f"[GET_UI_PANELS] PO supplier: {po.supplier.name} (PK: {po.supplier.pk})")
             except PurchaseOrder.DoesNotExist:
+                print(f"[GET_UI_PANELS] PO not found")
                 return panels
 
             # Add panel for Digikey supplier
             if (self.registered_suppliers.get('Digikey', {}).get('is_registered') and
                 po.supplier.pk == self.registered_suppliers['Digikey']['pk']):
+                print(f"[GET_UI_PANELS] Adding Digikey panel")
                 panels.append({
                     'key': 'digikey-po-transfer',
                     'title': 'Digikey Actions',
-                    'icon': 'ti:shopping-cart:outline',
+                    'icon': 'tabler:shopping-cart',
                     'source': self.plugin_static_file('po_transfer_panel.js:renderDigikeyPanel'),
                     'context': {
                         'po_pk': target_id,
@@ -210,10 +222,11 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             # Add panel for Mouser supplier
             if (self.registered_suppliers.get('Mouser', {}).get('is_registered') and
                 po.supplier.pk == self.registered_suppliers['Mouser']['pk']):
+                print(f"[GET_UI_PANELS] Adding Mouser panel")
                 panels.append({
                     'key': 'mouser-po-transfer',
                     'title': 'Mouser Actions',
-                    'icon': 'ti:shopping-cart:outline',
+                    'icon': 'tabler:shopping-cart',
                     'source': self.plugin_static_file('po_transfer_panel.js:renderMouserPanel'),
                     'context': {
                         'po_pk': target_id,
