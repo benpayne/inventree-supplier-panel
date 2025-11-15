@@ -409,10 +409,17 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         supplier = Company.objects.filter(id=supplier_pk)[0]
         
         data['sku'] = data['sku'].strip()
+        print(f"[ADD_SUPPLIER_PART] SKU after strip: '{data['sku']}'")
+        
         if (data['sku'] == ''):
+            print(f"[ADD_SUPPLIER_PART] ✗ Empty SKU")
             return JsonResponse({"message": "Please provide part number"})
+        
         manufacturer_part = ManufacturerPart.objects.filter(part=data['pk'])
+        print(f"[ADD_SUPPLIER_PART] Found {len(manufacturer_part)} manufacturer parts for this InvenTree part")
+        
         if len(manufacturer_part) == 0:
+            print(f"[ADD_SUPPLIER_PART] ✗ Part has no manufacturer part - this is required!")
             return JsonResponse({"message": "Part has no manufacturer part"})
         supplier_parts = SupplierPart.objects.filter(part=data['pk'])
         for sp in supplier_parts:
