@@ -128,9 +128,19 @@ class Digikey():
             'accept': 'application/json'
         }
         response = Wrappers.post_request(self, json.dumps(url_data), url, headers=header)
-#        self.status_code = response.status_code
-        cart_data['ID'] = response.json()
+        
+        # Check if the request was successful
+        if response.status_code not in [200, 201]:
+            cart_data['ID'] = ''
+            cart_data['error_status'] = f'Failed to create list: {response.status_code} - {response.text}'
+            return cart_data
+        
+        # Extract the list ID from the response
+        response_data = response.json()
+        # The Digikey API returns {"ListId": "123456", "ListName": "PO-001-..."}
+        cart_data['ID'] = response_data.get('ListId', response_data)
         cart_data['error_status'] = 'OK'
+        print(f"✓ Created Digikey list: {list_name} with ID: {cart_data['ID']}")
         return (cart_data)
 
     # Error status not checked !!!
