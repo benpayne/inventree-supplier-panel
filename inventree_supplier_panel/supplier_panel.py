@@ -148,6 +148,17 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 # ----------------------------------------------------------------------------
 # Create the panels using the new UserInterfaceMixin API
 
+    def get_ui_features(self, feature_type, context, **kwargs):
+        """Return UI features such as navigation items."""
+        if feature_type == 'navigation':
+            return [{
+                'key': 'import-parts',
+                'title': 'Import Parts',
+                'icon': 'ti:package-import:outline',
+                'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
+            }]
+        return []
+
     def get_ui_panels(self, request, context, **kwargs):
         """Return custom panels for Purchase Orders and Parts."""
         panels = []
@@ -271,6 +282,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             # Now for the plugin
             re_path(r'transfercart/(?P<pk>\d+)/', self.transfer_cart, name='transfer-cart'),
             re_path(r'addsupplierpart(?:\.(?P<format>json))?$', self.add_supplierpart, name='add-supplierpart'),
+            re_path(r'importfullpart(?:\.(?P<format>json))?$', self.import_full_part, name='import-full-part'),
         ]
 
 # --------------------------- get_partdata ------------------------------------
@@ -483,6 +495,184 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             SupplierPriceBreak.objects.create(part=sp, quantity=pb['Quantity'], price=pb['Price'], price_currency=pb['Currency'])
         print(f"[ADD_SUPPLIER_PART] Success! Created supplier part.")
         return JsonResponse({"message": "OK"})
+
+# ---------------------------- import_full_part -------------------------------
+    def import_full_part(self, request):
+        """
+        Import a complete part from supplier (Digikey/Mouser) including:
+        - InvenTree part
+        - Manufacturer company
+        - Manufacturer part
+        - Supplier part with price breaks
+        - Part image
+        """
+        print(f"\n[IMPORT_FULL_PART] ========================================")
+        try:
+            data = json.loads(request.body)
+            supplier_name = data.get('supplier', '').lower()
+            sku = data.get('sku', '').strip()
+            category_pk = data.get('category_pk')
+            
+            print(f"[IMPORT_FULL_PART] Supplier: {supplier_name}, SKU: {sku}, Category PK: {category_pk}")
+            
+            # Validation
+            if not supplier_name or not sku or not category_pk:
+                return JsonResponse({"status": "error", "message": "Missing required fields"}, status=400)
+            
+            # Map supplier name to PK
+            supplier_map = {
+                'digikey': self.get_setting('DIGIKEY_PK'),
+                'mouser': self.get_setting('MOUSER_PK')
+            }
+            
+            supplier_pk = supplier_map.get(supplier_name)
+            if not supplier_pk:
+                return JsonResponse({"status": "error", "message": f"Supplier '{supplier_name}' not configured"}, status=400)
+            
+            # Get supplier company
+            try:
+                supplier_company = Company.objects.get(pk=supplier_pk)
+                print(f"[IMPORT_FULL_PART] Supplier company: {supplier_company.name}")
+            except Company.DoesNotExist:
+                return JsonResponse({"status": "error", "message": f"Supplier company with PK {supplier_pk} not found"}, status=404)
+            
+            # Fetch extended part data from supplier API
+            print(f"[IMPORT_FULL_PART] Fetching extended part data from {supplier_name}...")
+            if supplier_name == 'digikey':
+                from inventree_supplier_panel.digikey import Digikey
+                part_data = Digikey.get_digikey_partdata_extended(self, sku, 'exact')
+            elif supplier_name == 'mouser':
+                from inventree_supplier_panel.mouser import Mouser
+                part_data = Mouser.get_mouser_partdata_extended(self, sku, 'exact')
+            else:
+                return JsonResponse({"status": "error", "message": f"Unsupported supplier: {supplier_name}"}, status=400)
+            
+            # Check API result
+            if part_data.get('error_status') != 'OK':
+                return JsonResponse({"status": "error", "message": f"API Error: {part_data.get('error_status')}"}, status=500)
+            
+            if part_data.get('number_of_results', 0) == 0:
+                return JsonResponse({"status": "error", "message": "Part not found in supplier database"}, status=404)
+            
+            print(f"[IMPORT_FULL_PART] ✓ Part data fetched successfully")
+            print(f"[IMPORT_FULL_PART] MPN: {part_data.get('MPN')}, Manufacturer: {part_data.get('manufacturer_name')}")
+            
+            # Step 1: Create or find manufacturer company
+            manufacturer_name = part_data.get('manufacturer_name')
+            if not manufacturer_name:
+                return JsonResponse({"status": "error", "message": "No manufacturer name in API response"}, status=500)
+            
+            manufacturer, created = Company.objects.get_or_create(
+                name=manufacturer_name,
+                is_manufacturer=True,
+                defaults={'description': f'Manufacturer {manufacturer_name}'}
+            )
+            print(f"[IMPORT_FULL_PART] Manufacturer: {'Created' if created else 'Found'} - {manufacturer.name} (PK: {manufacturer.pk})")
+            
+            # Step 2: Create InvenTree part (use MPN as name)
+            part_name = part_data.get('MPN', sku)
+            
+            # Check if part already exists
+            existing_part = Part.objects.filter(name=part_name).first()
+            if existing_part:
+                print(f"[IMPORT_FULL_PART] ✗ Part '{part_name}' already exists (PK: {existing_part.pk})")
+                return JsonResponse({
+                    "status": "error",
+                    "message": f"Part '{part_name}' already exists in InvenTree",
+                    "part_pk": existing_part.pk
+                }, status=409)
+            
+            inv_part = Part.objects.create(
+                name=part_name,
+                description=part_data.get('description', '')[:250],  # Limit to 250 chars
+                category_id=category_pk,
+                active=True,
+                virtual=False,
+                component=True,
+                purchaseable=True
+            )
+            print(f"[IMPORT_FULL_PART] ✓ Created InvenTree part: {inv_part.name} (PK: {inv_part.pk})")
+            
+            # Step 3: Create manufacturer part
+            mpn = part_data.get('MPN', '')
+            mfg_part = ManufacturerPart.objects.create(
+                part=inv_part,
+                manufacturer=manufacturer,
+                MPN=mpn
+            )
+            print(f"[IMPORT_FULL_PART] ✓ Created manufacturer part: {mpn} (PK: {mfg_part.pk})")
+            
+            # Step 4: Create supplier part
+            supplier_part = SupplierPart.objects.create(
+                part=inv_part,
+                supplier=supplier_company,
+                manufacturer_part=mfg_part,
+                SKU=part_data.get('SKU', sku),
+                link=part_data.get('URL', ''),
+                note=part_data.get('lifecycle_status', ''),
+                packaging=part_data.get('package', ''),
+                pack_quantity=part_data.get('pack_quantity', '1'),
+                description=part_data.get('description', '')[:250]
+            )
+            print(f"[IMPORT_FULL_PART] ✓ Created supplier part: {supplier_part.SKU} (PK: {supplier_part.pk})")
+            
+            # Step 5: Create price breaks
+            for pb in part_data.get('price_breaks', []):
+                SupplierPriceBreak.objects.create(
+                    part=supplier_part,
+                    quantity=pb['Quantity'],
+                    price=pb['Price'],
+                    price_currency=pb.get('Currency', 'USD')
+                )
+            print(f"[IMPORT_FULL_PART] ✓ Created {len(part_data.get('price_breaks', []))} price breaks")
+            
+            # Step 6: Upload part image
+            image_url = part_data.get('primary_photo') or part_data.get('image_url')
+            if image_url:
+                print(f"[IMPORT_FULL_PART] Downloading and uploading image...")
+                try:
+                    from inventree_supplier_panel.image_manager import ImageManager
+                    img_file = ImageManager.get_image(image_url)
+                    if img_file:
+                        # Upload image using Django's file upload
+                        with open(img_file, 'rb') as f:
+                            from django.core.files import File
+                            inv_part.image.save(f'part_{inv_part.pk}.jpg', File(f), save=True)
+                        print(f"[IMPORT_FULL_PART] ✓ Image uploaded successfully")
+                        ImageManager.clean_cache()
+                    else:
+                        print(f"[IMPORT_FULL_PART] ✗ Image download failed")
+                except Exception as e:
+                    print(f"[IMPORT_FULL_PART] ✗ Image upload error: {e}")
+                    # Don't fail the whole import if image fails
+            
+            print(f"[IMPORT_FULL_PART] ========================================")
+            print(f"[IMPORT_FULL_PART] ✓✓✓ SUCCESS - Part imported completely!")
+            
+            # Return success response
+            return JsonResponse({
+                "status": "success",
+                "message": "Part imported successfully",
+                "part_pk": inv_part.pk,
+                "part_name": inv_part.name,
+                "manufacturer_name": manufacturer.name,
+                "mpn": mpn,
+                "supplier_name": supplier_company.name,
+                "sku": supplier_part.SKU,
+                "description": part_data.get('description', '')[:100]
+            })
+            
+        except json.JSONDecodeError as e:
+            print(f"[IMPORT_FULL_PART] ✗ JSON decode error: {e}")
+            return JsonResponse({"status": "error", "message": "Invalid JSON in request"}, status=400)
+        except Part.DoesNotExist:
+            print(f"[IMPORT_FULL_PART] ✗ Category not found")
+            return JsonResponse({"status": "error", "message": "Invalid category PK"}, status=404)
+        except Exception as e:
+            print(f"[IMPORT_FULL_PART] ✗ Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
+            return JsonResponse({"status": "error", "message": f"Internal error: {str(e)}"}, status=500)
 
 # ---------------------------- Define the suppliers ----------------------------
     registered_suppliers = {'Mouser': {'pk': 0,

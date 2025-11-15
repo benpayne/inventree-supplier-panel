@@ -144,6 +144,135 @@ class Mouser():
         print(f"  Final number of matching results: {number_of_results}")
         return part_data
 
+    # --------------------------- get_mouser_partdata_extended -----------------------------
+    # Extended version that returns additional fields for full part import
+    def get_mouser_partdata_extended(self, sku, options):
+        """
+        Get extended part data from Mouser API including manufacturer, category, images, attributes.
+        This is used for full part import functionality.
+        """
+        print(f"\n[MOUSER-EXTENDED] get_mouser_partdata_extended called:")
+        print(f"  SKU: {sku}")
+        
+        part_data = {}
+        part = {"SearchByPartRequest": {"mouserPartNumber": sku,
+                                        "partSearchOptions": options,
+                                        }
+                }
+        api_key = self.get_setting('MOUSERSEARCHKEY')
+        
+        url = 'https://api.mouser.com/api/v1.0/search/partnumber?apiKey=' + api_key
+        header = {'Content-type': 'application/json', 'Accept': 'application/json'}
+        response = Wrappers.post_request(self, json.dumps(part), url, header)
+        
+        try:
+            response = response.json()
+        except Exception as e:
+            print(f"  ✗ Failed to parse JSON response: {e}")
+            part_data['error_status'] = str(e)
+            return part_data
+
+        # Check for errors
+        try:
+            part_data['error_status'] = response['Message']
+            return part_data
+        except Exception:
+            pass
+
+        if response['Errors'] != []:
+            if response['Errors'][0]['Code'] == 'InvalidCharacters':
+                part_data['error_status'] = 'InvalidCharacters'
+            elif response['Errors'][0]['Code'] == 'Invalid':
+                part_data['error_status'] = 'InvalidAuthorization'
+            elif response['Errors'][0]['Code'] == 'TooManyRequests':
+                part_data['error_status'] = 'TooManyRequests'
+            else:
+                part_data['error_status'] = response['Errors'][0]['Code']
+            return part_data
+
+        # Check for results
+        number_of_results = int(response['SearchResults']['NumberOfResult'])
+        if number_of_results == 0:
+            part_data['error_status'] = 'OK'
+            part_data['number_of_results'] = number_of_results
+            return part_data
+
+        # Find exact match
+        pd = None
+        for part_result in response['SearchResults']['Parts']:
+            if part_result['MouserPartNumber'] == sku:
+                pd = part_result
+                break
+        
+        if not pd:
+            part_data['error_status'] = 'OK'
+            part_data['number_of_results'] = 0
+            return part_data
+
+        # Extract basic data
+        part_data['SKU'] = pd['MouserPartNumber']
+        part_data['MPN'] = pd['ManufacturerPartNumber']
+        part_data['URL'] = pd['ProductDetailUrl']
+        part_data['lifecycle_status'] = pd['LifecycleStatus']
+        part_data['pack_quantity'] = pd['Mult']
+        part_data['description'] = pd['Description']
+        part_data['package'] = Mouser.get_mouser_package(self, pd)
+
+        # Extract manufacturer name
+        try:
+            part_data['manufacturer_name'] = pd.get('Manufacturer', '')
+            print(f"  Manufacturer: {part_data['manufacturer_name']}")
+        except (KeyError, TypeError):
+            part_data['manufacturer_name'] = None
+
+        # Extract category
+        try:
+            part_data['category'] = pd.get('Category', '')
+            print(f"  Category: {part_data['category']}")
+        except (KeyError, TypeError):
+            part_data['category'] = ''
+
+        # Extract image URL
+        try:
+            part_data['image_url'] = pd.get('ImagePath', '')
+            print(f"  Image URL: {part_data['image_url'][:60]}..." if part_data['image_url'] else "  No image available")
+        except (KeyError, TypeError):
+            part_data['image_url'] = None
+
+        # Extract data sheet URL
+        try:
+            part_data['data_sheet_url'] = pd.get('DataSheetUrl', '')
+        except (KeyError, TypeError):
+            part_data['data_sheet_url'] = ''
+
+        # Extract product attributes
+        try:
+            part_data['attributes'] = []
+            if 'ProductAttributes' in pd:
+                for attr in pd['ProductAttributes']:
+                    part_data['attributes'].append({
+                        'name': attr.get('AttributeName', ''),
+                        'value': attr.get('AttributeValue', '')
+                    })
+            print(f"  Attributes: {len(part_data['attributes'])} found")
+        except (KeyError, TypeError):
+            part_data['attributes'] = []
+
+        # Price breaks
+        part_data['price_breaks'] = []
+        for pb in pd['PriceBreaks']:
+            new_price = Mouser.reformat_mouser_price(self, pb['Price'])
+            part_data['price_breaks'].append({
+                'Quantity': pb['Quantity'],
+                'Price': new_price,
+                'Currency': pb['Currency']
+            })
+
+        part_data['error_status'] = 'OK'
+        part_data['number_of_results'] = 1
+        print(f"  ✓ Extended part data extracted successfully")
+        return part_data
+
     # ------------------------------- get_mouser_package --------------------------
     # Extracts the available packages from the Mouser part data json. The language
     # the Mouser uses for the anwser cannot be set. It seems to be fixed toe the region

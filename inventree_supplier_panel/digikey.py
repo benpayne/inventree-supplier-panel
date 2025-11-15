@@ -99,6 +99,144 @@ class Digikey():
         print(f"  Found {len(part_data['price_breaks'])} price breaks")
         return (part_data)
 
+    # --------------------------- get_digikey_partdata_extended ----------------------------
+    # Extended version that returns additional fields for full part import
+    def get_digikey_partdata_extended(self, sku, options):
+        """
+        Get extended part data from Digikey API including manufacturer, category, images, parameters.
+        This is used for full part import functionality.
+        """
+        print(f"\n[DIGIKEY-EXTENDED] get_digikey_partdata_extended called:")
+        print(f"  SKU: {sku}")
+        
+        part_data = {}
+        print(f"  Refreshing Digikey access token...")
+        token = Digikey.refresh_digikey_access_token(self)
+        if token['status_code'] != 200:
+            print(f"  ✗ Token refresh failed: {token['message']}")
+            part_data['error_status'] = token['message']
+            return part_data
+        print(f"  ✓ Token refreshed successfully")
+
+        # replace invalid characters in the partnumber
+        sku = quote(sku, safe='')
+        url = f'https://api.digikey.com/products/v4/search/{sku}/productdetails'
+        country_code = self.COUNTRY_CODES[InvenTreeSetting.get_setting('INVENTREE_DEFAULT_CURRENCY')]
+        header = {
+            'Authorization': f"{'Bearer'} {self.get_setting('DIGIKEY_TOKEN')}",
+            'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
+            'Content-Type': 'application/json',
+            'X-DIGIKEY-Locale-Currency': InvenTreeSetting.get_setting('INVENTREE_DEFAULT_CURRENCY'),
+            'X-DIGIKEY-Locale-Site': country_code,
+            'X-DIGIKEY-Locale-Language': 'EN'
+        }
+        response = Wrappers.get_request(self, url, headers=header)
+        print(f"  Response status code: {response.status_code}")
+        
+        try:
+            response_json = response.json()
+        except Exception as e:
+            print(f"  ✗ Failed to parse JSON response: {e}")
+            part_data['error_status'] = str(e)
+            return part_data
+
+        # Check for errors
+        try:
+            if response_json.get('status') and response_json['status'] != 200:
+                error_msg = response_json.get('title', '') + ' ' + response_json.get('detail', '')
+                print(f"  ✗ Error in response: {error_msg}")
+                part_data['error_status'] = error_msg
+                return part_data
+        except Exception:
+            pass
+
+        # Select the right variation
+        product = None
+        for prod in response_json['Product']['ProductVariations']:
+            if prod['DigiKeyProductNumber'] == sku:
+                product = prod
+                break
+        
+        if not product:
+            print(f"  ✗ No matching product variation found")
+            part_data['error_status'] = f'No matching product variation for {sku}'
+            return part_data
+
+        # Extract basic data
+        part_data['SKU'] = product['DigiKeyProductNumber']
+        part_data['MPN'] = response_json['Product']['ManufacturerProductNumber']
+        part_data['URL'] = response_json['Product']['ProductUrl']
+        part_data['lifecycle_status'] = response_json['Product']['ProductStatus']['Status']
+        part_data['description'] = response_json['Product']['Description']['DetailedDescription']
+        part_data['package'] = product['PackageType']['Name']
+        
+        # Extract manufacturer name
+        try:
+            part_data['manufacturer_name'] = response_json['Product']['Manufacturer']['Name']
+            print(f"  Manufacturer: {part_data['manufacturer_name']}")
+        except (KeyError, TypeError):
+            part_data['manufacturer_name'] = None
+            print(f"  ✗ Could not extract manufacturer name")
+
+        # Extract category
+        try:
+            # Try taxonomy first, then category
+            if 'LimitedTaxonomy' in response_json['Product']:
+                part_data['category'] = response_json['Product']['LimitedTaxonomy'].get('Value', '')
+            elif 'Category' in response_json['Product']:
+                part_data['category'] = response_json['Product']['Category'].get('Name', '')
+            else:
+                part_data['category'] = ''
+            print(f"  Category: {part_data['category']}")
+        except (KeyError, TypeError):
+            part_data['category'] = ''
+
+        # Extract primary photo
+        try:
+            part_data['primary_photo'] = response_json['Product'].get('PrimaryPhoto', '')
+            print(f"  Primary Photo: {part_data['primary_photo'][:60]}..." if part_data['primary_photo'] else "  No photo available")
+        except (KeyError, TypeError):
+            part_data['primary_photo'] = None
+
+        # Extract parameters
+        try:
+            part_data['parameters'] = []
+            if 'Parameters' in response_json['Product']:
+                for param in response_json['Product']['Parameters']:
+                    part_data['parameters'].append({
+                        'name': param.get('Parameter', ''),
+                        'value': param.get('Value', '')
+                    })
+            print(f"  Parameters: {len(part_data['parameters'])} found")
+        except (KeyError, TypeError):
+            part_data['parameters'] = []
+
+        # Extract HTSUS code
+        try:
+            part_data['htsus'] = response_json['Product'].get('HtsusCode', '')
+        except (KeyError, TypeError):
+            part_data['htsus'] = ''
+
+        # Pack quantity
+        if product['MinimumOrderQuantity'] == 0:
+            part_data['pack_quantity'] = '1'
+        else:
+            part_data['pack_quantity'] = str(product['MinimumOrderQuantity'])
+
+        # Price breaks
+        part_data['price_breaks'] = []
+        for pb in product['StandardPricing']:
+            part_data['price_breaks'].append({
+                'Quantity': pb['BreakQuantity'],
+                'Price': pb['UnitPrice'],
+                'Currency': response_json['SearchLocaleUsed']['Currency']
+            })
+
+        part_data['error_status'] = 'OK'
+        part_data['number_of_results'] = 1
+        print(f"  ✓ Extended part data extracted successfully")
+        return part_data
+
     # ------------------- create_digikey_cart
     # Digikey does not have a cart API. So we create a list using the MyLists API
     # The list can easily be converted to a shopping cart or a quote in the
