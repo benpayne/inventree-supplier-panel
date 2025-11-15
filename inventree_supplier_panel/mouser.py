@@ -56,18 +56,28 @@ import json
 class Mouser():
     # --------------------------- get_mouser_partdata -----------------------------
     def get_mouser_partdata(self, sku, options):
+        print(f"\n[MOUSER] get_mouser_partdata called:")
+        print(f"  SKU: {sku}")
+        print(f"  Options: {options}")
 
         part_data = {}
         part = {"SearchByPartRequest": {"mouserPartNumber": sku,
                                         "partSearchOptions": options,
                                         }
                 }
-        url = 'https://api.mouser.com/api/v1.0/search/partnumber?apiKey=' + self.get_setting('MOUSERSEARCHKEY')
+        api_key = self.get_setting('MOUSERSEARCHKEY')
+        print(f"  API Key configured: {'YES' if api_key else 'NO'}")
+        
+        url = 'https://api.mouser.com/api/v1.0/search/partnumber?apiKey=' + api_key
         header = {'Content-type': 'application/json', 'Accept': 'application/json'}
+        print(f"  Making POST request to: {url[:60]}...")
         response = Wrappers.post_request(self, json.dumps(part), url, header)
+        print(f"  Response status code: {response.status_code}")
         try:
             response = response.json()
-        except Exception:
+            print(f"  Response parsed as JSON successfully")
+        except Exception as e:
+            print(f"  ✗ Failed to parse JSON response: {e}")
             part_data['error_status'] = response
             return part_data
 
@@ -77,6 +87,7 @@ class Mouser():
         # Lets check those first
         try:
             part_data['error_status'] = response['Message']
+            print(f"  ✗ Error in response Message: {response['Message']}")
             return part_data
         except Exception:
             pass
@@ -84,6 +95,7 @@ class Mouser():
         # Then we evaluate the Errors array. there are some known errors
         # and the rest.
         if response['Errors'] != []:
+            print(f"  ✗ Errors array not empty: {response['Errors']}")
             if response['Errors'][0]['Code'] == 'InvalidCharacters':
                 part_data['error_status'] = 'InvalidCharacters'
             elif response['Errors'][0]['Code'] == 'Invalid':
@@ -96,7 +108,9 @@ class Mouser():
 
         # If we came here, no errors have been reported and there sould be results.
         number_of_results = int(response['SearchResults']['NumberOfResult'])
+        print(f"  Number of results from Mouser: {number_of_results}")
         if number_of_results == 0:
+            print(f"  ✗ No results found")
             part_data['error_status'] = 'OK'
             part_data['number_of_results'] = number_of_results
             return part_data
@@ -107,8 +121,11 @@ class Mouser():
 
         # Sometimes Mouser reports parts with different SKU even when exace is set
         # Lest filter those
+        print(f"  Filtering results for exact SKU match...")
         for pd in response['SearchResults']['Parts']:
+            print(f"    Checking part: {pd.get('MouserPartNumber')} vs requested: {sku}")
             if pd['MouserPartNumber'] == sku:
+                print(f"    ✓ Exact match found!")
                 part_data['price_breaks'] = []
                 part_data['SKU'] = pd['MouserPartNumber']
                 part_data['MPN'] = pd['ManufacturerPartNumber']
@@ -122,8 +139,9 @@ class Mouser():
                     part_data['price_breaks'].append({'Quantity': pb['Quantity'], 'Price': new_price, 'Currency': pb['Currency']})
                 number_of_results = number_of_results + 1
             else:
-                print('SKU does not match')
+                print(f"    ✗ SKU does not match, skipping")
         part_data['number_of_results'] = number_of_results
+        print(f"  Final number of matching results: {number_of_results}")
         return part_data
 
     # ------------------------------- get_mouser_package --------------------------

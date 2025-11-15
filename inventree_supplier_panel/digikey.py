@@ -14,16 +14,25 @@ class Digikey():
     # function selector in the main file.
 
     def get_digikey_partdata_v4(self, sku, options):
+        print(f"\n[DIGIKEY] get_digikey_partdata_v4 called:")
+        print(f"  SKU: {sku}")
+        print(f"  Options: {options}")
+        
         part_data = {}
+        print(f"  Refreshing Digikey access token...")
         token = Digikey.refresh_digikey_access_token(self)
         if token['status_code'] != 200:
+            print(f"  ✗ Token refresh failed: {token['message']}")
             part_data['error_status'] = token['message']
             return part_data
+        print(f"  ✓ Token refreshed successfully")
 
         # replace invalid characters in the partnumber
         sku = quote(sku, safe='')
         url = f'https://api.digikey.com/products/v4/search/{sku}/productdetails'
         country_code = self.COUNTRY_CODES[InvenTreeSetting.get_setting('INVENTREE_DEFAULT_CURRENCY')]
+        print(f"  Country code: {country_code}")
+        print(f"  Making GET request to: {url}")
         header = {
             'Authorization': f"{'Bearer'} {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
@@ -33,25 +42,38 @@ class Digikey():
             'X-DIGIKEY-Locale-Language': 'EN'
         }
         response = Wrappers.get_request(self, url, headers=header)
+        print(f"  Response status code: {response.status_code}")
         try:
             response_json = response.json()
-        except Exception:
+            print(f"  Response parsed as JSON successfully")
+        except Exception as e:
+            print(f"  ✗ Failed to parse JSON response: {e}")
             part_data['error_status'] = response
             return part_data
 
         # If we are here, digikey responded. Lets look for errors.
         try:
             if response_json['status'] != 200:
-                part_data['error_status'] = response_json['title'] + response_json['detail']
+                error_msg = response_json['title'] + response_json['detail']
+                print(f"  ✗ Error in response: {error_msg}")
+                part_data['error_status'] = error_msg
                 return part_data
         except Exception:
             pass
-        print('Remaining requests:', response.headers['X-RateLimit-Remaining'])
+        print('  Remaining requests:', response.headers.get('X-RateLimit-Remaining', 'unknown'))
 
         # Select the right variation that fits the searched SKU
+        print(f"  Searching for matching product variation...")
         for product in response_json['Product']['ProductVariations']:
+            print(f"    Checking: {product['DigiKeyProductNumber']} vs requested: {sku}")
             if product['DigiKeyProductNumber'] == sku:
+                print(f"    ✓ Exact match found!")
                 break
+        else:
+            print(f"  ✗ No matching product variation found for SKU: {sku}")
+            part_data['error_status'] = f'No matching product variation for {sku}'
+            part_data['number_of_results'] = 0
+            return part_data
         part_data['SKU'] = product['DigiKeyProductNumber']
         part_data['MPN'] = response_json['Product']['ManufacturerProductNumber']
         part_data['URL'] = response_json['Product']['ProductUrl']
@@ -61,6 +83,7 @@ class Digikey():
         part_data['price_breaks'] = []
         part_data['error_status'] = 'OK'
         part_data['number_of_results'] = 1
+        print(f"  ✓ Part data extracted successfully")
 
         # Digikey responds 0 for the pack quantity on obsolete parts. We change this because
         # Inventree does not support 0 here.
@@ -73,6 +96,7 @@ class Digikey():
                                               'Price': pb['UnitPrice'],
                                               'Currency': response_json['SearchLocaleUsed']['Currency']
                                               })
+        print(f"  Found {len(part_data['price_breaks'])} price breaks")
         return (part_data)
 
     # ------------------- create_digikey_cart

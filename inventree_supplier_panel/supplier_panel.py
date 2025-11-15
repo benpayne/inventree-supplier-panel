@@ -276,24 +276,44 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 # --------------------------- get_partdata ------------------------------------
 # This is just the wrapper that selects the proper supplier dependant function
     def get_partdata(self, supplier, sku, options):
+        print(f"\n[GET_PARTDATA] Called with:")
+        print(f"  Supplier: {supplier}")
+        print(f"  SKU: {sku}")
+        print(f"  Options: {options}")
 
         try:
             self.registered_suppliers['Mouser']['pk'] = int(self.get_setting('MOUSER_PK'))
-        except Exception:
+            print(f"  Mouser PK: {self.registered_suppliers['Mouser']['pk']}")
+        except Exception as e:
+            print(f"  Mouser PK not configured: {e}")
             pass
         try:
             self.registered_suppliers['Digikey']['pk'] = int(self.get_setting('DIGIKEY_PK'))
-        except Exception:
+            print(f"  Digikey PK: {self.registered_suppliers['Digikey']['pk']}")
+        except Exception as e:
+            print(f"  Digikey PK not configured: {e}")
             pass
         try:
             self.registered_suppliers['Farnell']['pk'] = int(self.get_setting('FARNELL_PK'))
-        except Exception:
+            print(f"  Farnell PK: {self.registered_suppliers['Farnell']['pk']}")
+        except Exception as e:
+            print(f"  Farnell PK not configured: {e}")
             pass
 
         part_data = {}
+        print(f"  Searching for supplier match in registered_suppliers...")
         for s in self.registered_suppliers:
+            print(f"    Checking: {s} (pk={self.registered_suppliers[s].get('pk')}) vs requested supplier: {supplier}")
             if supplier == self.registered_suppliers[s]['pk']:
+                print(f"    ✓ Match found! Calling {s} get_partdata function...")
                 part_data = self.registered_suppliers[s]['get_partdata'](self, sku, options)
+                break
+        else:
+            print(f"  ✗ No matching supplier found for: {supplier}")
+            part_data['error_status'] = f'Supplier not found or not configured: {supplier}'
+            part_data['number_of_results'] = 0
+        
+        print(f"  Returning part_data with error_status: {part_data.get('error_status')}, results: {part_data.get('number_of_results')}")
         return part_data
 
 # --------------------------- receive_authcode --------------------------------
