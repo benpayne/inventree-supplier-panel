@@ -448,13 +448,11 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                 print(f"[ADD_SUPPLIER_PART] ✗ Supplier part with SKU '{data['sku']}' already exists!")
                 return JsonResponse({"message": "Supplierpart with this SKU already exists"})
 
-        # Map supplier name to the format expected by get_partdata
-        supplier_name_for_api = supplier_name.capitalize()  # 'digikey' -> 'Digikey'
-        
-        print(f"[ADD_SUPPLIER_PART] Calling get_partdata('{supplier_name_for_api}', '{data['sku']}', 'exact')")
+        # Call get_partdata with the supplier PK (integer), not the name
+        print(f"[ADD_SUPPLIER_PART] Calling get_partdata(supplier_pk={supplier_pk}, sku='{data['sku']}', options='exact')")
         
         # Here start the new interface
-        data_result = self.get_partdata(supplier_name_for_api, data['sku'], 'exact')
+        data_result = self.get_partdata(supplier_pk, data['sku'], 'exact')
         
         print(f"[ADD_SUPPLIER_PART] Result: error_status={data_result.get('error_status')}, num_results={data_result.get('number_of_results')}")
         
