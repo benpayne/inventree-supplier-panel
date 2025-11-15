@@ -84,38 +84,49 @@ class Digikey():
     def create_digikey_cart(self, order):
         cart_data = {}
         from datetime import datetime
+        print(f"\n[DIGIKEY] Starting list creation for PO: {order.reference}")
         list_name = MetaAccess.get_value(self, order, 'DigiKeyListName')
+        print(f"[DIGIKEY] Existing list name from metadata: {list_name}")
         if list_name is None:
             # Use timestamp for more uniqueness
             timestamp = datetime.now().strftime('%y%m%d-%H%M%S')
             list_name = f"{order.reference}-{timestamp}"
+            print(f"[DIGIKEY] Generated new list name: {list_name}")
         else:
             # Extract base and increment version
             parts = list_name.rsplit('-', 1)
             if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 2:
                 version = int(parts[1]) + 1
                 list_name = f"{parts[0]}-{str(version).zfill(2)}"
+                print(f"[DIGIKEY] Incremented version to: {list_name}")
             else:
                 # Fallback: append timestamp
                 timestamp = datetime.now().strftime('%y%m%d-%H%M%S')
                 list_name = f"{order.reference}-{timestamp}"
+                print(f"[DIGIKEY] Generated new timestamp list name: {list_name}")
         
+        print(f"[DIGIKEY] Refreshing access token...")
         token = Digikey.refresh_digikey_access_token(self)
 
         if token['status_code'] != 200:
+            print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
             cart_data['error_status'] = token['message']
             return cart_data
         
         # Try to find a valid unique name
+        print(f"[DIGIKEY] Checking if list name '{list_name}' is available...")
         i = 0
         original_list_name = list_name
         while not Digikey.check_valid_listname(self, list_name):
             i = i + 1
             list_name = f"{original_list_name}-{str(i).zfill(2)}"
+            print(f"[DIGIKEY] List name taken, trying: {list_name} (attempt {i}/20)")
             if i >= 20:
+                print(f"[DIGIKEY] ✗ Failed to find valid list name after 20 attempts")
                 cart_data['ID'] = ''
                 cart_data['error_status'] = 'No valid list name found within 20 attempts'
                 return cart_data
+        print(f"[DIGIKEY] ✓ List name '{list_name}' is available")
         MetaAccess.set_value(self, order, 'DigiKeyListName', list_name)
         url = 'https://api.digikey.com/mylists/v1/lists'
         header = {
