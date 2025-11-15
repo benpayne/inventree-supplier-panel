@@ -30,21 +30,40 @@ export function renderPanel(target, data) {
 }
 
 /**
- * Fetch registered suppliers from the plugin
- * This is a simplified approach - in practice, we'd need to fetch this from the API
+ * Fetch registered suppliers from the plugin settings
  */
 async function fetchRegisteredSuppliers(partPk) {
-    // For now, return hardcoded suppliers that match the settings
-    // In a full implementation, this could query the plugin API
-    const suppliers = [];
-    
-    // We'll populate this dynamically based on which suppliers are configured
-    // For now, we'll show all possible suppliers and let the backend validate
-    suppliers.push({ name: 'Digikey', value: 'digikey' });
-    suppliers.push({ name: 'Mouser', value: 'mouser' });
-    suppliers.push({ name: 'Farnell', value: 'farnell' });
-    
-    return suppliers;
+    // Fetch the supplier PKs from the plugin settings API
+    try {
+        const response = await fetch('/api/plugins/suppliercart/settings/');
+        if (!response.ok) {
+            throw new Error('Failed to fetch plugin settings');
+        }
+        
+        const settings = await response.json();
+        const suppliers = [];
+        
+        // Map settings to supplier list
+        if (settings.DIGIKEY_PK) {
+            suppliers.push({ name: 'Digikey', value: settings.DIGIKEY_PK, key: 'digikey' });
+        }
+        if (settings.MOUSER_PK) {
+            suppliers.push({ name: 'Mouser', value: settings.MOUSER_PK, key: 'mouser' });
+        }
+        if (settings.FARNELL_PK) {
+            suppliers.push({ name: 'Farnell', value: settings.FARNELL_PK, key: 'farnell' });
+        }
+        
+        return suppliers;
+    } catch (error) {
+        console.error('Error fetching supplier settings:', error);
+        // Fallback to showing all suppliers, but they won't work without PKs
+        return [
+            { name: 'Digikey', value: '', key: 'digikey' },
+            { name: 'Mouser', value: '', key: 'mouser' },
+            { name: 'Farnell', value: '', key: 'farnell' }
+        ];
+    }
 }
 
 /**
