@@ -243,6 +243,36 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         return panels
 
+    def get_ui_dashboard_items(self, request, context, **kwargs):
+        """Return custom dashboard items for admin users."""
+        items = []
+        
+        # Only show to admin/staff users
+        if request.user.is_staff:
+            # Check if we have the client ID configured
+            client_id = self.get_setting('DIGIKEY_CLIENT_ID')
+            has_token = bool(self.get_setting('DIGIKEY_TOKEN'))
+            has_refresh = bool(self.get_setting('DIGIKEY_REFRESH_TOKEN'))
+            
+            items.append({
+                'key': 'digikey-token-setup',
+                'title': 'Digikey Token Setup',
+                'description': 'Configure OAuth tokens for Digikey API access',
+                'icon': 'ti:key:outline',
+                'source': self.plugin_static_file('admin_token_setup.js'),
+                'context': {
+                    'client_id': client_id or '',
+                    'has_token': has_token,
+                    'has_refresh_token': has_refresh
+                },
+                'options': {
+                    'width': 4,
+                    'height': 3
+                }
+            })
+        
+        return items
+
     def _load_registered_suppliers(self):
         """Helper to load supplier PKs from settings."""
         try:
