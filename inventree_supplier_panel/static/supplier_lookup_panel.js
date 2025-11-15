@@ -40,29 +40,36 @@ async function fetchRegisteredSuppliers(partPk) {
             throw new Error('Failed to fetch plugin settings');
         }
         
-        const settings = await response.json();
+        const settingsArray = await response.json();
         const suppliers = [];
         
-        // Map settings to supplier list
-        if (settings.DIGIKEY_PK) {
+        // Convert array to key-value map
+        const settings = {};
+        settingsArray.forEach(setting => {
+            if (setting.key && setting.value) {
+                settings[setting.key] = setting.value;
+            }
+        });
+        
+        // Map settings to supplier list (only add if PK is set and not empty)
+        if (settings.DIGIKEY_PK && settings.DIGIKEY_PK !== '') {
             suppliers.push({ name: 'Digikey', value: settings.DIGIKEY_PK, key: 'digikey' });
         }
-        if (settings.MOUSER_PK) {
+        if (settings.MOUSER_PK && settings.MOUSER_PK !== '') {
             suppliers.push({ name: 'Mouser', value: settings.MOUSER_PK, key: 'mouser' });
         }
-        if (settings.FARNELL_PK) {
+        if (settings.FARNELL_PK && settings.FARNELL_PK !== '') {
             suppliers.push({ name: 'Farnell', value: settings.FARNELL_PK, key: 'farnell' });
+        }
+        
+        if (suppliers.length === 0) {
+            throw new Error('No suppliers configured. Please configure suppliers in plugin settings.');
         }
         
         return suppliers;
     } catch (error) {
         console.error('Error fetching supplier settings:', error);
-        // Fallback to showing all suppliers, but they won't work without PKs
-        return [
-            { name: 'Digikey', value: '', key: 'digikey' },
-            { name: 'Mouser', value: '', key: 'mouser' },
-            { name: 'Farnell', value: '', key: 'farnell' }
-        ];
+        throw error;
     }
 }
 
