@@ -370,6 +370,8 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         data = json.loads(request.body)
         part = Part.objects.filter(id=data['pk'])[0]
         
+        print(f"\n[ADD_SUPPLIER_PART] Request data: {data}")
+        
         # Map supplier name to PK (data['supplier'] is the name like 'digikey' or 'mouser')
         supplier_name = data['supplier'].lower()
         supplier_map = {
@@ -379,6 +381,8 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         }
         
         supplier_pk = supplier_map.get(supplier_name)
+        print(f"[ADD_SUPPLIER_PART] Supplier: {supplier_name}, PK: {supplier_pk}")
+        
         if not supplier_pk:
             return JsonResponse({"message": f"Supplier '{data['supplier']}' not configured"})
         
@@ -398,8 +402,13 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         # Map supplier name to the format expected by get_partdata
         supplier_name_for_api = supplier_name.capitalize()  # 'digikey' -> 'Digikey'
         
+        print(f"[ADD_SUPPLIER_PART] Calling get_partdata('{supplier_name_for_api}', '{data['sku']}', 'exact')")
+        
         # Here start the new interface
         data_result = self.get_partdata(supplier_name_for_api, data['sku'], 'exact')
+        
+        print(f"[ADD_SUPPLIER_PART] Result: error_status={data_result.get('error_status')}, num_results={data_result.get('number_of_results')}")
+        
         if data_result['error_status'] != 'OK':
             return JsonResponse({"message": data_result['error_status']})
         if data_result['number_of_results'] == 0:
@@ -416,6 +425,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                                          )
         for pb in data_result['price_breaks']:
             SupplierPriceBreak.objects.create(part=sp, quantity=pb['Quantity'], price=pb['Price'], price_currency=pb['Currency'])
+        print(f"[ADD_SUPPLIER_PART] Success! Created supplier part.")
         return JsonResponse({"message": "OK"})
 
 # ---------------------------- Define the suppliers ----------------------------
