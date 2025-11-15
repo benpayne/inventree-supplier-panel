@@ -154,7 +154,7 @@ class Digikey():
         print(f"✓ Created Digikey list: {list_name} with ID: {cart_data['ID']}")
         return (cart_data)
 
-    # Error status not checked !!!
+    # Check if list name is available - now with error checking!
     def check_valid_listname(self, list_name):
         url = f'https://api.digikey.com/mylists/v1/lists/validate/{list_name}?createdBy=xxxx'
         header = {
@@ -163,7 +163,16 @@ class Digikey():
             'accept': 'application/json'
         }
         response = Wrappers.get_request(self, url, headers=header)
-        return (response.content == b'true')
+        
+        # Check if the API call was successful
+        if response.status_code != 200:
+            print(f"[DIGIKEY] ✗ Error checking list name: {response.status_code} - {response.text}")
+            # If API call fails, we can't validate, so assume name is taken to be safe
+            return False
+        
+        is_valid = (response.content == b'true')
+        print(f"[DIGIKEY] List name '{list_name}' validation result: {is_valid} (response: {response.content})")
+        return is_valid
 
     # ------------------------------------------------------------------
     # Digikey has no shopping cart API. So we create a list using the MyLists API.
