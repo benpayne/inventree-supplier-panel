@@ -13,6 +13,18 @@ The plugin also helps to create supplierparts based on the supplier part number.
 Actually the plugin supports three suppliers: Mouser, Digikey and Farnell. For Farnell you can
 just add supplierparts. There is no shopping cart function yet.
 
+## Compatibility
+
+**Version 1.0.0+** is compatible with **InvenTree 1.0.0 and later** (using the new React-based UI with `UserInterfaceMixin`).
+
+- If you're using InvenTree 1.0.0 or later, install version 1.0.0+
+- If you're using InvenTree 0.x (pre-1.0), use version 0.6.x or earlier
+
+**Breaking Changes in 1.0.0:**
+- Migrated from `PanelMixin` (deprecated) to `UserInterfaceMixin`
+- UI panels now use JavaScript/React components instead of Django templates
+- Requires InvenTree 1.0.0 or later
+
 ## Installation
 The plugin is on pypi. You can install it by just calling:
 

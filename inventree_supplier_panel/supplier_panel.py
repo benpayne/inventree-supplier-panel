@@ -7,7 +7,7 @@ from order.models import PurchaseOrder
 from part.api import PartDetail
 from part.models import Part
 from plugin import InvenTreePlugin
-from plugin.mixins import PanelMixin, SettingsMixin, UrlsMixin
+from plugin.mixins import UserInterfaceMixin, SettingsMixin, UrlsMixin
 from company.models import Company, ManufacturerPart, SupplierPart
 from company.models import SupplierPriceBreak
 from users.models import check_user_role
@@ -23,7 +23,7 @@ import json
 from datetime import datetime
 
 
-class SupplierCartPanel(PanelMixin, SettingsMixin, InvenTreePlugin, UrlsMixin):
+class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, UrlsMixin):
 
     PurchaseOrderPK = 0
 
@@ -146,57 +146,122 @@ class SupplierCartPanel(PanelMixin, SettingsMixin, InvenTreePlugin, UrlsMixin):
         """
 
 # ----------------------------------------------------------------------------
-# Create the panel that will display on the PurchaseOrder view.
+# Create the panels using the new UserInterfaceMixin API
 
-    def get_custom_panels(self, view, request):
+    def get_ui_panels(self, request, context, **kwargs):
+        """Return custom panels for Purchase Orders and Parts."""
         panels = []
-        try:
-            self.registered_suppliers['Mouser']['pk'] = int(self.get_setting('MOUSER_PK'))
-            self.registered_suppliers['Mouser']['is_registered'] = True
-        except Exception:
-            self.registered_suppliers['Mouser']['is_registered'] = False
+        target_model = context.get('target_model')
+        target_id = context.get('target_id')
+
+        # Load registered suppliers from settings
+        self._load_registered_suppliers()
+
+        # For Purchase Orders: PO transfer panels
+        if target_model == 'purchaseorder' and target_id:
+            # Check permissions
+            has_permission = (
+                check_user_role(request.user, 'purchase_order', 'change') or
+                check_user_role(request.user, 'purchase_order', 'delete') or
+                check_user_role(request.user, 'purchase_order', 'add')
+            )
+
+            if not has_permission:
+                return panels
+
+            # Get the PO and check supplier
+            try:
+                po = PurchaseOrder.objects.get(pk=target_id)
+            except PurchaseOrder.DoesNotExist:
+                return panels
+
+            # Add panel for Digikey supplier
+            if (self.registered_suppliers.get('Digikey', {}).get('is_registered') and
+                po.supplier.pk == self.registered_suppliers['Digikey']['pk']):
+                panels.append({
+                    'key': 'digikey-po-transfer',
+                    'title': 'Digikey Actions',
+                    'icon': 'ti:shopping-cart:outline',
+                    'source': self.plugin_static_file('po_transfer_panel.js:renderDigikeyPanel'),
+                    'context': {
+                        'po_pk': target_id,
+                        'supplier': 'Digikey'
+                    }
+                })
+
+            # Add panel for Mouser supplier
+            if (self.registered_suppliers.get('Mouser', {}).get('is_registered') and
+                po.supplier.pk == self.registered_suppliers['Mouser']['pk']):
+                panels.append({
+                    'key': 'mouser-po-transfer',
+                    'title': 'Mouser Actions',
+                    'icon': 'ti:shopping-cart:outline',
+                    'source': self.plugin_static_file('po_transfer_panel.js:renderMouserPanel'),
+                    'context': {
+                        'po_pk': target_id,
+                        'supplier': 'Mouser'
+                    }
+                })
+
+            # Add panel for Farnell supplier (if implemented in the future)
+            if (self.registered_suppliers.get('Farnell', {}).get('is_registered') and
+                po.supplier.pk == self.registered_suppliers['Farnell']['pk']):
+                # Farnell panel would go here
+                pass
+
+        # For Parts: Supplier part creation panel
+        if target_model == 'part' and target_id:
+            # Check permissions
+            has_permission = (
+                check_user_role(request.user, 'part', 'change') or
+                check_user_role(request.user, 'part', 'delete') or
+                check_user_role(request.user, 'part', 'add')
+            )
+
+            if not has_permission:
+                return panels
+
+            # Check if any supplier is registered
+            show_panel = any(
+                self.registered_suppliers.get(s, {}).get('is_registered', False)
+                for s in ['Digikey', 'Mouser', 'Farnell']
+            )
+
+            if show_panel:
+                try:
+                    part = Part.objects.get(pk=target_id)
+                    if part.purchaseable:
+                        panels.append({
+                            'key': 'supplier-lookup',
+                            'title': 'Automatic Supplier Parts',
+                            'icon': 'ti:search:outline',
+                            'source': self.plugin_static_file('supplier_lookup_panel.js'),
+                            'context': {'part_pk': target_id}
+                        })
+                except Part.DoesNotExist:
+                    pass
+
+        return panels
+
+    def _load_registered_suppliers(self):
+        """Helper to load supplier PKs from settings."""
         try:
             self.registered_suppliers['Digikey']['pk'] = int(self.get_setting('DIGIKEY_PK'))
             self.registered_suppliers['Digikey']['is_registered'] = True
         except Exception:
             self.registered_suppliers['Digikey']['is_registered'] = False
+
+        try:
+            self.registered_suppliers['Mouser']['pk'] = int(self.get_setting('MOUSER_PK'))
+            self.registered_suppliers['Mouser']['is_registered'] = True
+        except Exception:
+            self.registered_suppliers['Mouser']['is_registered'] = False
+
         try:
             self.registered_suppliers['Farnell']['pk'] = int(self.get_setting('FARNELL_PK'))
             self.registered_suppliers['Farnell']['is_registered'] = True
         except Exception:
             self.registered_suppliers['Farnell']['is_registered'] = False
-
-        # For purchase orders: PO transfer
-        if isinstance(view, PurchaseOrderDetail):
-            order = view.get_object()
-            has_permission = (check_user_role(view.request.user, 'purchase_order', 'change')
-                              or check_user_role(view.request.user, 'purchase_order', 'delete')
-                              or check_user_role(view.request.user, 'purchase_order', 'add'))
-
-            for s in self.registered_suppliers:
-                if order.supplier.pk == self.registered_suppliers[s]['pk'] and has_permission:
-                    panels.append({
-                        'title': self.registered_suppliers[s]['name'] + ' Actions',
-                        'icon': 'fa-user',
-                        'content_template': self.registered_suppliers[s]['po_template'],
-                    })
-
-        # For parts: Supplier part creation
-        if isinstance(view, PartDetail):
-            has_permission = (check_user_role(view.request.user, 'part', 'change')
-                              or check_user_role(view.request.user, 'part', 'delete')
-                              or check_user_role(view.request.user, 'part', 'add'))
-            show_panel = False
-            for s in self.registered_suppliers:
-                show_panel = show_panel or self.registered_suppliers[s]['is_registered']
-            part = view.get_object()
-            if has_permission and show_panel and part.purchaseable:
-                panels.append({
-                    'title': 'Automatic Supplier parts',
-                    'icon': 'fa-user',
-                    'content_template': 'supplier_panel/add_supplierpart.html',
-                })
-        return panels
 
     def setup_urls(self):
         return [
