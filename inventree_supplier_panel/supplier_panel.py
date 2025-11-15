@@ -302,9 +302,18 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         part_data = {}
         print(f"  Searching for supplier match in registered_suppliers...")
+        print(f"  Requested supplier type: {type(supplier)}, value: {supplier}")
+        
+        # Convert supplier to int if it's not already
+        try:
+            supplier_int = int(supplier)
+        except (ValueError, TypeError):
+            supplier_int = supplier
+            
         for s in self.registered_suppliers:
-            print(f"    Checking: {s} (pk={self.registered_suppliers[s].get('pk')}) vs requested supplier: {supplier}")
-            if supplier == self.registered_suppliers[s]['pk']:
+            registered_pk = self.registered_suppliers[s].get('pk')
+            print(f"    Checking: {s} (pk={registered_pk}, type={type(registered_pk)}) vs requested supplier: {supplier_int} (type={type(supplier_int)})")
+            if supplier_int == registered_pk:
                 print(f"    ✓ Match found! Calling {s} get_partdata function...")
                 part_data = self.registered_suppliers[s]['get_partdata'](self, sku, options)
                 break
