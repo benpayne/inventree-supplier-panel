@@ -144,14 +144,26 @@ class Digikey():
         if response.status_code not in [200, 201]:
             cart_data['ID'] = ''
             cart_data['error_status'] = f'Failed to create list: {response.status_code} - {response.text}'
+            print(f"[DIGIKEY] ✗ List creation failed: {response.status_code} - {response.text}")
             return cart_data
         
         # Extract the list ID from the response
         response_data = response.json()
-        # The Digikey API returns {"ListId": "123456", "ListName": "PO-001-..."}
-        cart_data['ID'] = response_data.get('ListId', response_data)
+        print(f"[DIGIKEY] Raw API response: {response_data}")
+        
+        # The Digikey API can return either a string ID or an object with ListId
+        if isinstance(response_data, str):
+            # Response is just the ListId string
+            cart_data['ID'] = response_data
+        elif isinstance(response_data, dict):
+            # Response is an object, extract ListId
+            cart_data['ID'] = response_data.get('ListId', response_data)
+        else:
+            # Unexpected response format
+            cart_data['ID'] = str(response_data)
+        
         cart_data['error_status'] = 'OK'
-        print(f"✓ Created Digikey list: {list_name} with ID: {cart_data['ID']}")
+        print(f"[DIGIKEY] ✓ Created Digikey list: {list_name} with ID: {cart_data['ID']}")
         return (cart_data)
 
     # Check if list name is available - now with error checking!
