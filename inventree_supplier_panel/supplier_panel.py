@@ -148,23 +148,14 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 # ----------------------------------------------------------------------------
 # Create the panels using the new UserInterfaceMixin API
 
-    def get_ui_features(self, *args, **kwargs):
-        """Return UI features such as navigation items."""
-        # InvenTree calls this with: self, feature_type, context, **kwargs
-        # So we need to handle variable arguments
-        if len(args) >= 1:
-            feature_type = args[0]
-        else:
-            feature_type = kwargs.get('feature_type')
-            
-        if feature_type == 'navigation':
-            return [{
-                'key': 'import-parts',
-                'title': 'Import Parts',
-                'icon': 'tabler:package-import',
-                'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
-            }]
-        return []
+    def get_ui_navigation_items(self, request):
+        """Return navigation items for the plugin."""
+        return [{
+            'key': 'import-parts',
+            'title': 'Import Parts',
+            'icon': 'tabler:package-import',
+            'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
+        }]
 
     def get_ui_panels(self, request, context, **kwargs):
         """Return custom panels for Purchase Orders and Parts."""
