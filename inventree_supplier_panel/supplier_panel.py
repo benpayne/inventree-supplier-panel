@@ -161,7 +161,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             return [{
                 'key': 'import-parts',
                 'title': 'Import Parts',
-                'icon': 'ti:package-import:outline',
+                'icon': 'tabler:package-import',
                 'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
             }]
         return []
