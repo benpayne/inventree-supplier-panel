@@ -150,12 +150,16 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
     def get_ui_navigation_items(self, request):
         """Return navigation items for the plugin."""
-        return [{
+        print(f"\n[GET_UI_NAVIGATION_ITEMS] Called!")
+        print(f"  User: {request.user if request else 'None'}")
+        nav_items = [{
             'key': 'import-parts',
             'title': 'Import Parts',
             'icon': 'tabler:package-import',
             'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
         }]
+        print(f"  Returning {len(nav_items)} navigation item(s)")
+        return nav_items
 
     def get_ui_panels(self, request, context, **kwargs):
         """Return custom panels for Purchase Orders and Parts."""
