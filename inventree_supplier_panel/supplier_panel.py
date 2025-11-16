@@ -148,19 +148,6 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 # ----------------------------------------------------------------------------
 # Create the panels using the new UserInterfaceMixin API
 
-    def get_ui_navigation_items(self, request):
-        """Return navigation items for the plugin."""
-        print(f"\n[GET_UI_NAVIGATION_ITEMS] Called!")
-        print(f"  User: {request.user if request else 'None'}")
-        nav_items = [{
-            'key': 'import-parts',
-            'title': 'Import Parts',
-            'icon': 'tabler:package-import',
-            'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage')
-        }]
-        print(f"  Returning {len(nav_items)} navigation item(s)")
-        return nav_items
-
     def get_ui_panels(self, request, context, **kwargs):
         """Return custom panels for Purchase Orders and Parts."""
         panels = []
@@ -234,6 +221,17 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                 po.supplier.pk == self.registered_suppliers['Farnell']['pk']):
                 # Farnell panel would go here
                 pass
+
+        # For Parts Category: Import Parts panel (shown on main parts page)
+        if target_model == 'partcategory':
+            print(f"[GET_UI_PANELS] Adding Import Parts panel for parts category")
+            panels.append({
+                'key': 'import-parts',
+                'title': 'Import Parts from Supplier',
+                'icon': 'tabler:package-import',
+                'source': self.plugin_static_file('import_parts_ui.js:renderImportPartsPage'),
+                'context': {}
+            })
 
         # For Parts: Supplier part creation panel
         if target_model == 'part' and target_id:
