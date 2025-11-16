@@ -1,3 +1,4 @@
 include LICENSE
 include README.md
 recursive-include inventree_supplier_panel/static *.js
+include inventree_supplier_panel/image_manager.py

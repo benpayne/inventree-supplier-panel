@@ -5,7 +5,7 @@ from django.urls import re_path
 from order.api import PurchaseOrderDetail
 from order.models import PurchaseOrder
 from part.api import PartDetail
-from part.models import Part
+from part.models import Part, PartParameter, PartParameterTemplate, PartCategory
 from plugin import InvenTreePlugin
 from plugin.mixins import UserInterfaceMixin, SettingsMixin, UrlsMixin
 from company.models import Company, ManufacturerPart, SupplierPart
@@ -102,6 +102,22 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         'PROXY_URL': {
             'name': 'Proxy URL',
             'description': 'URL to proxy server if needed e.g. http://user:password@ipaddress:port',
+        },
+        'DIGIKEY_CATEGORY_MAP': {
+            'name': 'Digikey Category Mapping',
+            'description': 'JSON mapping of Digikey categories to InvenTree categories. Format: {"Digikey Category": "InvenTree Category"}',
+            'default': '{"Resistors": "Resistors", "Capacitors": "Capacitors", "Transistors": "Transistors", "Connectors": "Connectors", "Integrated Circuits (ICs)": "Integrated Circuits", "Discrete Semiconductor Products": "Diodes", "Crystals, Oscillators, Resonators": "Oscillators", "Connectors, Interconnects": "Connectors", "Inductors, Coils, Chokes": "Inductors", "Circuit Protection": "Other", "Embedded Computers": "Boards", "Development Boards, Kits, Programmers": "Boards", "Potentiometers, Variable Resistors": "Resistors", "Optoelectronics": "Integrated Circuits", "Filters": "Other"}',
+        },
+        'DIGIKEY_PARAMETER_MAP': {
+            'name': 'Digikey Parameter Mapping',
+            'description': 'JSON mapping of Digikey parameter names to InvenTree parameter names. Format: {"Digikey Param": "InvenTree Param"}',
+            'default': '{"Resistance": "Resistance", "Tolerance": "Tolerance", "Power (Watts)": "Power", "Package / Case": "Package", "Voltage - Rated": "Voltage", "Capacitance": "Capacitance", "Inductance": "Inductance"}',
+        },
+        'IMPORT_HTSUS': {
+            'name': 'Import HTSUS Codes',
+            'description': 'Enable importing HTSUS (Harmonized Tariff Schedule) codes from Digikey',
+            'default': True,
+            'validator': bool,
         },
     }
 
@@ -582,52 +598,84 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             )
             print(f"[IMPORT_FULL_PART] Manufacturer: {'Created' if created else 'Found'} - {manufacturer.name} (PK: {manufacturer.pk})")
             
-            # Step 2: Create InvenTree part (use MPN as name)
+            # Step 2: Create or update InvenTree part (use MPN as name)
             part_name = part_data.get('MPN', sku)
             
             # Check if part already exists
             existing_part = Part.objects.filter(name=part_name).first()
             if existing_part:
-                print(f"[IMPORT_FULL_PART] ✗ Part '{part_name}' already exists (PK: {existing_part.pk})")
-                return JsonResponse({
-                    "status": "error",
-                    "message": f"Part '{part_name}' already exists in InvenTree",
-                    "part_pk": existing_part.pk
-                }, status=409)
+                print(f"[IMPORT_FULL_PART] Part '{part_name}' already exists (PK: {existing_part.pk}) - UPDATING")
+                inv_part = existing_part
+                
+                # Update description if it's different
+                new_description = part_data.get('description', '')[:250]
+                if inv_part.description != new_description:
+                    inv_part.description = new_description
+                    inv_part.save()
+                    print(f"[IMPORT_FULL_PART] ✓ Updated description")
+                
+                # Use existing part for subsequent operations
+                print(f"[IMPORT_FULL_PART] Using existing part: {inv_part.name} (PK: {inv_part.pk})")
+            else:
+                # Create new part
+                inv_part = Part.objects.create(
+                    name=part_name,
+                    description=part_data.get('description', '')[:250],  # Limit to 250 chars
+                    category_id=category_pk,
+                    active=True,
+                    virtual=False,
+                    component=True,
+                    purchaseable=True
+                )
+                print(f"[IMPORT_FULL_PART] ✓ Created InvenTree part: {inv_part.name} (PK: {inv_part.pk})")
             
-            inv_part = Part.objects.create(
-                name=part_name,
-                description=part_data.get('description', '')[:250],  # Limit to 250 chars
-                category_id=category_pk,
-                active=True,
-                virtual=False,
-                component=True,
-                purchaseable=True
-            )
-            print(f"[IMPORT_FULL_PART] ✓ Created InvenTree part: {inv_part.name} (PK: {inv_part.pk})")
-            
-            # Step 3: Create manufacturer part
+            # Step 3: Create or find manufacturer part
             mpn = part_data.get('MPN', '')
-            mfg_part = ManufacturerPart.objects.create(
+            mfg_part = ManufacturerPart.objects.filter(
                 part=inv_part,
                 manufacturer=manufacturer,
                 MPN=mpn
-            )
-            print(f"[IMPORT_FULL_PART] ✓ Created manufacturer part: {mpn} (PK: {mfg_part.pk})")
+            ).first()
             
-            # Step 4: Create supplier part
-            supplier_part = SupplierPart.objects.create(
+            if not mfg_part:
+                mfg_part = ManufacturerPart.objects.create(
+                    part=inv_part,
+                    manufacturer=manufacturer,
+                    MPN=mpn
+                )
+                print(f"[IMPORT_FULL_PART] ✓ Created manufacturer part: {mpn} (PK: {mfg_part.pk})")
+            else:
+                print(f"[IMPORT_FULL_PART] Using existing manufacturer part: {mpn} (PK: {mfg_part.pk})")
+            
+            # Step 4: Create or find supplier part
+            supplier_part = SupplierPart.objects.filter(
                 part=inv_part,
                 supplier=supplier_company,
-                manufacturer_part=mfg_part,
-                SKU=part_data.get('SKU', sku),
-                link=part_data.get('URL', ''),
-                note=part_data.get('lifecycle_status', ''),
-                packaging=part_data.get('package', ''),
-                pack_quantity=part_data.get('pack_quantity', '1'),
-                description=part_data.get('description', '')[:250]
-            )
-            print(f"[IMPORT_FULL_PART] ✓ Created supplier part: {supplier_part.SKU} (PK: {supplier_part.pk})")
+                SKU=part_data.get('SKU', sku)
+            ).first()
+            
+            if not supplier_part:
+                supplier_part = SupplierPart.objects.create(
+                    part=inv_part,
+                    supplier=supplier_company,
+                    manufacturer_part=mfg_part,
+                    SKU=part_data.get('SKU', sku),
+                    link=part_data.get('URL', ''),
+                    note=part_data.get('lifecycle_status', ''),
+                    packaging=part_data.get('package', ''),
+                    pack_quantity=part_data.get('pack_quantity', '1'),
+                    description=part_data.get('description', '')[:250]
+                )
+                print(f"[IMPORT_FULL_PART] ✓ Created supplier part: {supplier_part.SKU} (PK: {supplier_part.pk})")
+            else:
+                # Update supplier part details
+                supplier_part.link = part_data.get('URL', '')
+                supplier_part.note = part_data.get('lifecycle_status', '')
+                supplier_part.packaging = part_data.get('package', '')
+                supplier_part.pack_quantity = part_data.get('pack_quantity', '1')
+                supplier_part.description = part_data.get('description', '')[:250]
+                supplier_part.save()
+                print(f"[IMPORT_FULL_PART] ✓ Updated supplier part: {supplier_part.SKU} (PK: {supplier_part.pk})")
             
             # Step 5: Create price breaks
             for pb in part_data.get('price_breaks', []):
@@ -639,25 +687,116 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                 )
             print(f"[IMPORT_FULL_PART] ✓ Created {len(part_data.get('price_breaks', []))} price breaks")
             
-            # Step 6: Upload part image
+            # Step 6: Upload part image (only if part doesn't have one)
             image_url = part_data.get('primary_photo') or part_data.get('image_url')
-            if image_url:
-                print(f"[IMPORT_FULL_PART] Downloading and uploading image...")
+            print(f"[IMPORT_FULL_PART] Image URL from API: {image_url}")
+            
+            # Check if part already has an image
+            if inv_part.image and inv_part.image.name:
+                print(f"[IMPORT_FULL_PART] Part already has image: {inv_part.image.name}, skipping upload")
+            elif image_url:
+                print(f"[IMPORT_FULL_PART] Downloading and uploading image from: {image_url[:100]}...")
                 try:
                     from inventree_supplier_panel.image_manager import ImageManager
+                    print(f"[IMPORT_FULL_PART] Calling ImageManager.get_image()...")
                     img_file = ImageManager.get_image(image_url)
+                    print(f"[IMPORT_FULL_PART] ImageManager returned: {img_file}")
                     if img_file:
+                        import os
+                        file_size = os.path.getsize(img_file) if os.path.exists(img_file) else 0
+                        print(f"[IMPORT_FULL_PART] Downloaded image file size: {file_size} bytes")
                         # Upload image using Django's file upload
                         with open(img_file, 'rb') as f:
                             from django.core.files import File
+                            print(f"[IMPORT_FULL_PART] Saving image to part.image...")
                             inv_part.image.save(f'part_{inv_part.pk}.jpg', File(f), save=True)
-                        print(f"[IMPORT_FULL_PART] ✓ Image uploaded successfully")
+                        print(f"[IMPORT_FULL_PART] ✓ Image uploaded successfully to part {inv_part.pk}")
                         ImageManager.clean_cache()
                     else:
-                        print(f"[IMPORT_FULL_PART] ✗ Image download failed")
+                        print(f"[IMPORT_FULL_PART] ✗ Image download failed - ImageManager returned None")
                 except Exception as e:
                     print(f"[IMPORT_FULL_PART] ✗ Image upload error: {e}")
+                    import traceback
+                    traceback.print_exc()
                     # Don't fail the whole import if image fails
+            else:
+                print(f"[IMPORT_FULL_PART] No image URL available from supplier API")
+            
+            # Step 7: Import parameters
+            parameters = part_data.get('parameters', [])
+            print(f"[IMPORT_FULL_PART] Found {len(parameters)} parameters from API")
+            if parameters:
+                # Load parameter mapping from settings
+                try:
+                    param_map_json = self.get_setting('DIGIKEY_PARAMETER_MAP')
+                    param_map = json.loads(param_map_json) if param_map_json else {}
+                    print(f"[IMPORT_FULL_PART] Loaded parameter map with {len(param_map)} mappings")
+                except Exception as e:
+                    print(f"[IMPORT_FULL_PART] ✗ Error loading parameter map: {e}, using empty map")
+                    param_map = {}
+                
+                params_created = 0
+                for param in parameters:
+                    param_name = param.get('name', '')
+                    param_value = param.get('value', '')
+                    
+                    if not param_name or not param_value:
+                        continue
+                    
+                    # Map parameter name using configuration
+                    mapped_name = param_map.get(param_name, param_name)
+                    print(f"[IMPORT_FULL_PART] Processing parameter: '{param_name}' -> '{mapped_name}' = '{param_value}'")
+                    
+                    try:
+                        # Get or create PartParameterTemplate
+                        template, created = PartParameterTemplate.objects.get_or_create(
+                            name=mapped_name,
+                            defaults={'description': f'Parameter {mapped_name}'}
+                        )
+                        if created:
+                            print(f"[IMPORT_FULL_PART]   Created new template: {mapped_name}")
+                        
+                        # Create PartParameter for this part
+                        part_param, created = PartParameter.objects.get_or_create(
+                            part=inv_part,
+                            template=template,
+                            defaults={'data': param_value}
+                        )
+                        if created:
+                            params_created += 1
+                            print(f"[IMPORT_FULL_PART]   ✓ Created parameter: {mapped_name} = {param_value}")
+                        else:
+                            print(f"[IMPORT_FULL_PART]   Parameter already exists: {mapped_name}")
+                    except Exception as e:
+                        print(f"[IMPORT_FULL_PART]   ✗ Error creating parameter {mapped_name}: {e}")
+                
+                print(f"[IMPORT_FULL_PART] ✓ Created {params_created} new parameters")
+            
+            # Step 8: Import HTSUS code if enabled
+            if self.get_setting('IMPORT_HTSUS'):
+                htsus_code = part_data.get('htsus', '')
+                if htsus_code:
+                    print(f"[IMPORT_FULL_PART] Importing HTSUS code: {htsus_code}")
+                    try:
+                        # Get or create HTSUS parameter template
+                        htsus_template, created = PartParameterTemplate.objects.get_or_create(
+                            name='HTSUS',
+                            defaults={'description': 'Harmonized Tariff Schedule code'}
+                        )
+                        # Create or update HTSUS parameter
+                        htsus_param, created = PartParameter.objects.update_or_create(
+                            part=inv_part,
+                            template=htsus_template,
+                            defaults={'data': htsus_code}
+                        )
+                        if created:
+                            print(f"[IMPORT_FULL_PART] ✓ Created HTSUS parameter: {htsus_code}")
+                        else:
+                            print(f"[IMPORT_FULL_PART] ✓ Updated HTSUS parameter: {htsus_code}")
+                    except Exception as e:
+                        print(f"[IMPORT_FULL_PART] ✗ Error importing HTSUS: {e}")
+                else:
+                    print(f"[IMPORT_FULL_PART] No HTSUS code available from API")
             
             print(f"[IMPORT_FULL_PART] ========================================")
             print(f"[IMPORT_FULL_PART] ✓✓✓ SUCCESS - Part imported completely!")
