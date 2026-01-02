@@ -364,7 +364,7 @@ class Digikey():
         cart_items = []
         for item in order.lines.all():
             cart_items.append({'RequestedPartNumber': item.part.SKU,
-                               'Quantities': [{'Quantity': int(item.quantity) * int(item.part.pack_quantity)}],
+                               'Quantities': [{'Quantity': int(item.quantity)}],
                                'CustomerReference': item.part.part.IPN
                                })
         # The post equest just generates the list in the Digikey cloud
