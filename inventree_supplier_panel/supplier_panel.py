@@ -508,12 +508,19 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         matched_items = []
         unmatched_items = []
 
+        # Log all Digikey SKUs for debugging
+        dk_skus = [item['digi_key_part_number'] for item in order_data['line_items']]
+        print(f"[IMPORT_DIGIKEY_ORDER] Digikey order SKUs: {dk_skus}")
+
         for po_item in order.lines.all():
             sku = po_item.part.SKU
+            print(f"[IMPORT_DIGIKEY_ORDER] Looking for PO SKU: '{sku}'")
             matched = False
 
             for dk_item in order_data['line_items']:
-                if dk_item['digi_key_part_number'] == sku:
+                dk_sku = dk_item['digi_key_part_number']
+                # Try exact match first, then try without trailing suffixes
+                if dk_sku == sku or dk_sku.rstrip('-ND') == sku.rstrip('-ND'):
                     # Update price
                     old_price = po_item.purchase_price
                     po_item.purchase_price = dk_item['unit_price']
