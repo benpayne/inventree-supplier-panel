@@ -572,6 +572,17 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         if order_data.get('line_items') and order_data['line_items'][0].get('invoice_id'):
             MetaAccess.set_value(self, order, 'DigiKeyInvoiceId', str(order_data['line_items'][0]['invoice_id']))
 
+        # Store tracking info
+        if order_data.get('tracking'):
+            tracking_info = order_data['tracking'][0] if order_data['tracking'] else {}
+            if tracking_info:
+                MetaAccess.set_value(self, order, 'DigiKeyCarrier', tracking_info.get('carrier', ''))
+                MetaAccess.set_value(self, order, 'DigiKeyTrackingNumber', tracking_info.get('tracking_number', ''))
+                MetaAccess.set_value(self, order, 'DigiKeyTrackingUrl', tracking_info.get('tracking_url', ''))
+                MetaAccess.set_value(self, order, 'DigiKeyShippingMethod', tracking_info.get('shipping_method', ''))
+                MetaAccess.set_value(self, order, 'DigiKeyDeliveryDate', tracking_info.get('delivery_date', ''))
+                print(f"[IMPORT_DIGIKEY_ORDER] ✓ Saved tracking: {tracking_info.get('carrier')} - {tracking_info.get('tracking_number')}")
+
         # Add extra line items for shipping, tax, and tariffs
         extra_lines_added = []
         currency = order_data.get('currency', 'USD')

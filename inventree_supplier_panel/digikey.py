@@ -648,4 +648,84 @@ class Digikey():
             })
 
         print(f"[DIGIKEY] ✓ Order {salesorder_id} has {len(result['line_items'])} line items")
+
+        # Try to fetch invoice details for shipping/tax/tariff costs
+        if shipping_details and len(shipping_details) > 0:
+            invoice_id = shipping_details[0].get('InvoiceId') or shipping_details[0].get('invoice_id')
+            if invoice_id:
+                print(f"[DIGIKEY] Attempting to fetch invoice {invoice_id} for cost details...")
+                invoice_data = Digikey.get_digikey_invoice(self, invoice_id)
+                if invoice_data.get('error_status') == 'OK':
+                    result['shipping_cost'] = invoice_data.get('shipping_cost', 0)
+                    result['tax'] = invoice_data.get('tax', 0)
+                    result['tariff'] = invoice_data.get('tariff', 0)
+                    print(f"[DIGIKEY] Invoice costs - Shipping: ${result['shipping_cost']}, Tax: ${result['tax']}, Tariff: ${result['tariff']}")
+
+        # Extract tracking info
+        result['tracking'] = []
+        if shipping_details:
+            for shipment in shipping_details:
+                result['tracking'].append({
+                    'carrier': shipment.get('Carrier') or shipment.get('carrier', ''),
+                    'tracking_number': shipment.get('CarrierPackageId') or shipment.get('carrier_package_id', ''),
+                    'tracking_url': shipment.get('TrackingUrl') or shipment.get('tracking_url', ''),
+                    'shipping_method': shipment.get('ShippingMethod') or shipment.get('shipping_method', ''),
+                    'delivery_date': shipment.get('DeliveryDate') or shipment.get('delivery_date', ''),
+                })
+
         return result
+
+    def get_digikey_invoice(self, invoice_id):
+        """
+        Try to fetch invoice details including shipping, tax, and tariff costs.
+        """
+        print(f"\n[DIGIKEY] Getting invoice details for invoice {invoice_id}...")
+
+        # Refresh token first
+        token = Digikey.refresh_digikey_access_token(self)
+        if token['status_code'] != 200:
+            print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
+            return {'error_status': token['message']}
+
+        # Try different possible invoice endpoints
+        endpoints = [
+            f'https://api.digikey.com/OrderDetails/v3/Invoice/{invoice_id}',
+            f'https://api.digikey.com/Invoicing/v3/Invoice/{invoice_id}',
+            f'https://api.digikey.com/OrderDetails/v3/Invoices/{invoice_id}',
+        ]
+
+        header = {
+            'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
+            'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
+            'accept': 'application/json'
+        }
+
+        for url in endpoints:
+            print(f"[DIGIKEY] Trying: {url}")
+            response = Wrappers.get_request(self, url, headers=header)
+            print(f"[DIGIKEY] Response status: {response.status_code}")
+
+            if response.status_code == 200:
+                try:
+                    invoice_data = response.json()
+                    print(f"[DIGIKEY] Invoice response keys: {invoice_data.keys() if isinstance(invoice_data, dict) else 'list'}")
+                    print(f"[DIGIKEY] Invoice data: {str(invoice_data)[:1000]}")
+
+                    # Extract costs from invoice
+                    result = {
+                        'error_status': 'OK',
+                        'shipping_cost': float(invoice_data.get('ShippingCost') or invoice_data.get('shipping_cost') or
+                                              invoice_data.get('Shipping') or invoice_data.get('shipping') or 0),
+                        'tax': float(invoice_data.get('Tax') or invoice_data.get('tax') or
+                                    invoice_data.get('SalesTax') or invoice_data.get('sales_tax') or 0),
+                        'tariff': float(invoice_data.get('Tariff') or invoice_data.get('tariff') or
+                                       invoice_data.get('Duty') or invoice_data.get('duty') or
+                                       invoice_data.get('TariffAmount') or invoice_data.get('tariff_amount') or 0),
+                    }
+                    return result
+                except Exception as e:
+                    print(f"[DIGIKEY] ✗ Failed to parse invoice response: {e}")
+            else:
+                print(f"[DIGIKEY] ✗ Invoice endpoint returned: {response.status_code} - {response.text[:200]}")
+
+        return {'error_status': 'Invoice API not available'}
