@@ -587,7 +587,34 @@ class Digikey():
         # Log full response for debugging extra fields
         print(f"[DIGIKEY] Order response keys: {order_data.keys()}")
 
-        # Parse the order details - handle both camelCase and snake_case
+        # Extract shipping details - costs are often nested here
+        shipping_details = order_data.get('ShippingDetails') or order_data.get('shipping_details') or []
+        print(f"[DIGIKEY] ShippingDetails: {shipping_details}")
+
+        # Sum up shipping costs from all shipments
+        shipping_cost = 0.0
+        tax = 0.0
+        tariff = 0.0
+
+        if isinstance(shipping_details, list):
+            for shipment in shipping_details:
+                shipping_cost += float(shipment.get('ShippingCost') or shipment.get('shipping_cost') or 0)
+                tax += float(shipment.get('Tax') or shipment.get('tax') or 0)
+                tariff += float(shipment.get('Tariff') or shipment.get('tariff') or shipment.get('Duty') or shipment.get('duty') or 0)
+        elif isinstance(shipping_details, dict):
+            shipping_cost = float(shipping_details.get('ShippingCost') or shipping_details.get('shipping_cost') or 0)
+            tax = float(shipping_details.get('Tax') or shipping_details.get('tax') or 0)
+            tariff = float(shipping_details.get('Tariff') or shipping_details.get('tariff') or shipping_details.get('Duty') or shipping_details.get('duty') or 0)
+
+        # Also check top-level fields
+        if shipping_cost == 0:
+            shipping_cost = float(order_data.get('ShippingCost') or order_data.get('shipping_cost') or 0)
+        if tax == 0:
+            tax = float(order_data.get('Tax') or order_data.get('tax') or 0)
+        if tariff == 0:
+            tariff = float(order_data.get('Tariff') or order_data.get('tariff') or order_data.get('Duty') or order_data.get('duty') or 0)
+
+        # Parse the order details
         result = {
             'error_status': 'OK',
             'salesorder_id': order_data.get('SalesorderId') or order_data.get('salesorder_id'),
@@ -596,9 +623,9 @@ class Digikey():
             'currency': order_data.get('Currency') or order_data.get('currency', 'USD'),
             'line_items': [],
             # Extra costs
-            'shipping_cost': float(order_data.get('ShippingCost') or order_data.get('shipping_cost') or 0),
-            'tax': float(order_data.get('Tax') or order_data.get('tax') or 0),
-            'tariff': float(order_data.get('Tariff') or order_data.get('tariff') or order_data.get('Duty') or order_data.get('duty') or 0),
+            'shipping_cost': shipping_cost,
+            'tax': tax,
+            'tariff': tariff,
             'merchandise_total': float(order_data.get('MerchandiseTotal') or order_data.get('merchandise_total') or 0),
             'order_total': float(order_data.get('OrderTotal') or order_data.get('order_total') or 0),
         }
