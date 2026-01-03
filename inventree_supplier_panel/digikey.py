@@ -487,3 +487,118 @@ class Digikey():
         token['acces_token'] = response_data['access_token']
         token['refresh_token'] = response_data['refresh_token']
         return (token)
+
+    # -------------------- Order Import Functions --------------------
+    # These functions retrieve order data from Digikey to import actual
+    # prices and order numbers back into InvenTree POs.
+
+    def get_digikey_order_history(self, days_back=30):
+        """
+        Get recent Digikey orders from the Order History API.
+        Returns a list of orders with salesorder_id, date, and PO reference.
+        """
+        from datetime import datetime, timedelta
+
+        print(f"\n[DIGIKEY] Getting order history for last {days_back} days...")
+
+        # Refresh token first
+        token = Digikey.refresh_digikey_access_token(self)
+        if token['status_code'] != 200:
+            print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
+            return {'error_status': token['message'], 'orders': []}
+
+        # Calculate date range
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        url = f'https://api.digikey.com/OrderDetails/v3/History?startDate={start_date}&endDate={end_date}'
+        header = {
+            'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
+            'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
+            'accept': 'application/json'
+        }
+
+        print(f"[DIGIKEY] Fetching orders from {start_date} to {end_date}")
+        response = Wrappers.get_request(self, url, headers=header)
+
+        if response.status_code != 200:
+            print(f"[DIGIKEY] ✗ Order history request failed: {response.status_code}")
+            return {'error_status': f'API error: {response.status_code}', 'orders': []}
+
+        try:
+            response_data = response.json()
+        except Exception as e:
+            print(f"[DIGIKEY] ✗ Failed to parse response: {e}")
+            return {'error_status': str(e), 'orders': []}
+
+        # Parse the order list
+        orders = []
+        for order in response_data:
+            orders.append({
+                'salesorder_id': order.get('SalesorderId') or order.get('salesorder_id'),
+                'date_entered': order.get('DateEntered') or order.get('date_entered'),
+                'purchase_order': order.get('PurchaseOrder') or order.get('purchase_order', ''),
+                'customer_id': order.get('CustomerId') or order.get('customer_id')
+            })
+
+        print(f"[DIGIKEY] ✓ Found {len(orders)} orders")
+        return {'error_status': 'OK', 'orders': orders}
+
+    def get_digikey_order_details(self, salesorder_id):
+        """
+        Get detailed order information including line items with actual prices.
+        """
+        print(f"\n[DIGIKEY] Getting order details for order {salesorder_id}...")
+
+        # Refresh token first
+        token = Digikey.refresh_digikey_access_token(self)
+        if token['status_code'] != 200:
+            print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
+            return {'error_status': token['message']}
+
+        url = f'https://api.digikey.com/OrderDetails/v3/Status/{salesorder_id}'
+        header = {
+            'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
+            'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
+            'accept': 'application/json'
+        }
+
+        print(f"[DIGIKEY] Fetching order {salesorder_id}")
+        response = Wrappers.get_request(self, url, headers=header)
+
+        if response.status_code != 200:
+            print(f"[DIGIKEY] ✗ Order details request failed: {response.status_code}")
+            return {'error_status': f'API error: {response.status_code}'}
+
+        try:
+            order_data = response.json()
+        except Exception as e:
+            print(f"[DIGIKEY] ✗ Failed to parse response: {e}")
+            return {'error_status': str(e)}
+
+        # Parse the order details - handle both camelCase and snake_case
+        result = {
+            'error_status': 'OK',
+            'salesorder_id': order_data.get('SalesorderId') or order_data.get('salesorder_id'),
+            'purchase_order': order_data.get('PurchaseOrder') or order_data.get('purchase_order', ''),
+            'customer_id': order_data.get('CustomerId') or order_data.get('customer_id'),
+            'currency': order_data.get('Currency') or order_data.get('currency', 'USD'),
+            'line_items': []
+        }
+
+        # Parse line items
+        raw_items = order_data.get('LineItems') or order_data.get('line_items', [])
+        for item in raw_items:
+            result['line_items'].append({
+                'digi_key_part_number': item.get('DigiKeyPartNumber') or item.get('digi_key_part_number', ''),
+                'manufacturer_part_number': item.get('ManufacturerPartNumber') or item.get('manufacturer_part_number', ''),
+                'product_description': item.get('ProductDescription') or item.get('product_description', ''),
+                'quantity': item.get('Quantity') or item.get('quantity', 0),
+                'unit_price': float(item.get('UnitPrice') or item.get('unit_price', 0)),
+                'total_price': float(item.get('TotalPrice') or item.get('total_price', 0)),
+                'invoice_id': item.get('InvoiceId') or item.get('invoice_id'),
+                'customer_reference': item.get('CustomerReference') or item.get('customer_reference', '')
+            })
+
+        print(f"[DIGIKEY] ✓ Order {salesorder_id} has {len(result['line_items'])} line items")
+        return result

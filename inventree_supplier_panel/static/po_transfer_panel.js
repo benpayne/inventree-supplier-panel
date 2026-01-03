@@ -35,6 +35,35 @@ export function renderMouserPanel(target, data) {
  * Common panel rendering function for both suppliers
  */
 function renderPanel(target, data, poPk, supplierName) {
+    // Build import order section HTML (only for Digikey)
+    const importOrderSection = supplierName === 'Digikey' ? `
+            <hr>
+            <h5>Import Order from Digikey</h5>
+            <p class="text-muted">After placing your order on Digikey, import the actual prices and order number back into this PO.</p>
+
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="use-recent-${poPk}" checked>
+                <label class="form-check-label" for="use-recent-${poPk}">Use most recent order</label>
+            </div>
+
+            <div id="order-select-container-${poPk}" style="display: none; margin-bottom: 10px;">
+                <select class="form-control" id="order-select-${poPk}" style="max-width: 400px;">
+                    <option value="">Loading orders...</option>
+                </select>
+            </div>
+
+            <button type='button' class='btn btn-success' id='import-order-btn-${poPk}' title='Import order data from Digikey'>
+                <span class='fas fa-download'></span> Import Order
+            </button>
+            <div width="30px" id="import-loader-${poPk}" class="wheel"></div>
+            <div class='alert alert-block' id='import-result-${poPk}' style='display: none;'>&nbsp;</div>
+            <div id="import-details-${poPk}" style='display: none;'>
+                <b>Digikey Order:</b> <span id="dk-order-id-${poPk}"></span><br>
+                <b>Matched Items:</b> <span id="matched-count-${poPk}"></span><br>
+            </div>
+            <div id="import-table-${poPk}"></div>
+    ` : '';
+
     // Create the panel HTML structure
     target.innerHTML = `
         <div class="supplier-cart-panel">
@@ -63,7 +92,7 @@ function renderPanel(target, data, poPk, supplierName) {
                     100% { transform: rotate(360deg); }
                 }
             </style>
-            
+
             <button type='button' class='btn btn-primary' id='transfer-btn-${poPk}' title='Transfer PO to ${supplierName}'>
                 <span class='fas fa-redo-alt'></span> Transfer PO
             </button>
@@ -75,6 +104,7 @@ function renderPanel(target, data, poPk, supplierName) {
                 <b>Cart date:</b> <span id="cart_date-${poPk}"></span><br>
             </div>
             <div id="myDynamicTable-${poPk}"></div>
+            ${importOrderSection}
         </div>
     `;
 
@@ -86,6 +116,218 @@ function renderPanel(target, data, poPk, supplierName) {
     if (data.instance?.metadata?.SupplierCart) {
         displayCartData(poPk, data.instance.metadata.SupplierCart);
     }
+
+    // Set up Digikey-specific import order handlers
+    if (supplierName === 'Digikey') {
+        setupImportOrderHandlers(poPk);
+    }
+}
+
+/**
+ * Set up event handlers for the import order section
+ */
+function setupImportOrderHandlers(poPk) {
+    const useRecentCheckbox = document.getElementById(`use-recent-${poPk}`);
+    const orderSelectContainer = document.getElementById(`order-select-container-${poPk}`);
+    const importBtn = document.getElementById(`import-order-btn-${poPk}`);
+
+    // Toggle order dropdown visibility based on checkbox
+    useRecentCheckbox.addEventListener('change', async () => {
+        if (useRecentCheckbox.checked) {
+            orderSelectContainer.style.display = 'none';
+        } else {
+            orderSelectContainer.style.display = 'block';
+            await loadDigikeyOrders(poPk);
+        }
+    });
+
+    // Import button click handler
+    importBtn.addEventListener('click', () => importDigikeyOrder(poPk));
+}
+
+/**
+ * Load Digikey orders into the dropdown
+ */
+async function loadDigikeyOrders(poPk) {
+    const orderSelect = document.getElementById(`order-select-${poPk}`);
+    orderSelect.innerHTML = '<option value="">Loading orders...</option>';
+
+    try {
+        const response = await fetch('/plugin/suppliercart/digikeyorders/');
+        const data = await response.json();
+
+        if (data.message !== 'OK') {
+            orderSelect.innerHTML = `<option value="">Error: ${data.message}</option>`;
+            return;
+        }
+
+        if (!data.orders || data.orders.length === 0) {
+            orderSelect.innerHTML = '<option value="">No recent orders found</option>';
+            return;
+        }
+
+        orderSelect.innerHTML = '';
+        data.orders.forEach(order => {
+            const option = document.createElement('option');
+            option.value = order.salesorder_id;
+            const dateStr = order.date_entered ? new Date(order.date_entered).toLocaleDateString() : '';
+            option.textContent = `${order.salesorder_id} - ${dateStr} ${order.purchase_order ? '(' + order.purchase_order + ')' : ''}`;
+            orderSelect.appendChild(option);
+        });
+    } catch (error) {
+        orderSelect.innerHTML = `<option value="">Error loading orders</option>`;
+        console.error('Error loading Digikey orders:', error);
+    }
+}
+
+/**
+ * Import order data from Digikey
+ */
+async function importDigikeyOrder(poPk) {
+    const useRecentCheckbox = document.getElementById(`use-recent-${poPk}`);
+    const orderSelect = document.getElementById(`order-select-${poPk}`);
+    const loader = document.getElementById(`import-loader-${poPk}`);
+    const result = document.getElementById(`import-result-${poPk}`);
+    const importBtn = document.getElementById(`import-order-btn-${poPk}`);
+    const importDetails = document.getElementById(`import-details-${poPk}`);
+
+    // Build request body
+    const requestBody = {};
+    if (useRecentCheckbox.checked) {
+        requestBody.use_recent = true;
+    } else {
+        requestBody.salesorder_id = orderSelect.value;
+        if (!requestBody.salesorder_id) {
+            result.textContent = 'Please select an order';
+            result.className = 'alert alert-block alert-warning';
+            result.style.display = 'block';
+            return;
+        }
+    }
+
+    // Show loader, disable button
+    loader.style.visibility = 'visible';
+    importBtn.disabled = true;
+    result.style.display = 'none';
+    importDetails.style.display = 'none';
+
+    try {
+        const response = await fetch(`/plugin/suppliercart/importorder/${poPk}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+        const data = await response.json();
+
+        // Hide loader
+        loader.style.visibility = 'hidden';
+        importBtn.disabled = false;
+
+        if (data.message === 'OK') {
+            result.textContent = `Successfully imported order ${data.salesorder_id}`;
+            result.className = 'alert alert-block alert-success';
+            result.style.display = 'block';
+
+            // Show import details
+            importDetails.style.display = 'block';
+            document.getElementById(`dk-order-id-${poPk}`).textContent = data.salesorder_id;
+            document.getElementById(`matched-count-${poPk}`).textContent =
+                `${data.matched_count} matched, ${data.unmatched_count} unmatched`;
+
+            // Display the import results table
+            if (data.matched_items && data.matched_items.length > 0) {
+                createImportResultsTable(poPk, data);
+            }
+        } else {
+            result.textContent = data.message || 'Import failed';
+            result.className = 'alert alert-block alert-danger';
+            result.style.display = 'block';
+        }
+    } catch (error) {
+        loader.style.visibility = 'hidden';
+        importBtn.disabled = false;
+        result.textContent = `Error: ${error.message}`;
+        result.className = 'alert alert-block alert-danger';
+        result.style.display = 'block';
+        console.error('Import order error:', error);
+    }
+}
+
+/**
+ * Create table showing import results
+ */
+function createImportResultsTable(poPk, data) {
+    const tableDiv = document.getElementById(`import-table-${poPk}`);
+    tableDiv.innerHTML = '';
+
+    const table = document.createElement('TABLE');
+    table.classList.add('table', 'table-condensed', 'table-striped');
+
+    // Create table head
+    const thead = document.createElement('THEAD');
+    const headRow = document.createElement('TR');
+    ['SKU', 'Old Price', 'New Price', 'Quantity'].forEach(header => {
+        const th = document.createElement('TH');
+        th.textContent = header;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    // Create table body
+    const tbody = document.createElement('TBODY');
+    data.matched_items.forEach(item => {
+        const tr = document.createElement('TR');
+
+        // SKU
+        let td = document.createElement('TD');
+        td.textContent = item.SKU;
+        tr.appendChild(td);
+
+        // Old Price
+        td = document.createElement('TD');
+        td.textContent = `${data.currency} ${item.old_price.toFixed(4)}`;
+        tr.appendChild(td);
+
+        // New Price
+        td = document.createElement('TD');
+        td.textContent = `${data.currency} ${item.new_price.toFixed(4)}`;
+        if (item.new_price !== item.old_price) {
+            td.style.color = 'green';
+            td.style.fontWeight = 'bold';
+        }
+        tr.appendChild(td);
+
+        // Quantity
+        td = document.createElement('TD');
+        td.textContent = item.quantity;
+        tr.appendChild(td);
+
+        tbody.appendChild(tr);
+    });
+
+    // Add unmatched items with warning
+    data.unmatched_items.forEach(item => {
+        const tr = document.createElement('TR');
+        tr.style.backgroundColor = '#fff3cd';
+
+        let td = document.createElement('TD');
+        td.textContent = item.SKU;
+        tr.appendChild(td);
+
+        td = document.createElement('TD');
+        td.colSpan = 3;
+        td.textContent = 'Not found in Digikey order';
+        td.style.color = '#856404';
+        tr.appendChild(td);
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tableDiv.appendChild(table);
 }
 
 /**

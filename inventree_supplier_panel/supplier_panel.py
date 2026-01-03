@@ -312,6 +312,10 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             re_path(r'transfercart/(?P<pk>\d+)/', self.transfer_cart, name='transfer-cart'),
             re_path(r'addsupplierpart(?:\.(?P<format>json))?$', self.add_supplierpart, name='add-supplierpart'),
             re_path(r'importfullpart(?:\.(?P<format>json))?$', self.import_full_part, name='import-full-part'),
+
+            # Digikey order import endpoints
+            re_path(r'digikeyorders/', self.get_digikey_orders, name='digikey-orders'),
+            re_path(r'importorder/(?P<pk>\d+)/', self.import_digikey_order, name='import-order'),
         ]
 
 # --------------------------- get_partdata ------------------------------------
@@ -434,6 +438,134 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         cart_data['cart_date'] = datetime.today().strftime('%Y-%m-%d')
         MetaAccess.set_value(self, order, 'cart', cart_data)
         return JsonResponse(cart_data)
+
+# ---------------------------- get_digikey_orders ------------------------------
+# Returns list of recent Digikey orders for dropdown selection
+
+    def get_digikey_orders(self, request):
+        """Get list of recent Digikey orders for import selection."""
+        print(f"\n[GET_DIGIKEY_ORDERS] Fetching recent Digikey orders...")
+
+        # Get order history from Digikey
+        result = Digikey.get_digikey_order_history(self, days_back=90)
+
+        if result['error_status'] != 'OK':
+            return JsonResponse({
+                'message': result['error_status'],
+                'orders': []
+            })
+
+        return JsonResponse({
+            'message': 'OK',
+            'orders': result['orders']
+        })
+
+# ---------------------------- import_digikey_order ----------------------------
+# Imports actual prices and order number from a placed Digikey order
+
+    def import_digikey_order(self, request, pk):
+        """
+        Import order data from Digikey into InvenTree PO.
+        Updates line item prices, stores order number, and marks PO as placed.
+        """
+        print(f"\n[IMPORT_DIGIKEY_ORDER] ========================================")
+        print(f"[IMPORT_DIGIKEY_ORDER] PO PK: {pk}")
+
+        # Get the PO
+        try:
+            order = PurchaseOrder.objects.get(pk=pk)
+        except PurchaseOrder.DoesNotExist:
+            return JsonResponse({'message': 'Purchase order not found'}, status=404)
+
+        # Parse request body
+        try:
+            data = json.loads(request.body)
+            salesorder_id = data.get('salesorder_id')
+            use_recent = data.get('use_recent', False)
+        except json.JSONDecodeError:
+            salesorder_id = None
+            use_recent = True
+
+        print(f"[IMPORT_DIGIKEY_ORDER] salesorder_id: {salesorder_id}, use_recent: {use_recent}")
+
+        # If use_recent, get the most recent order
+        if use_recent or not salesorder_id:
+            print("[IMPORT_DIGIKEY_ORDER] Fetching most recent order...")
+            history = Digikey.get_digikey_order_history(self, days_back=30)
+            if history['error_status'] != 'OK':
+                return JsonResponse({'message': history['error_status']})
+            if not history['orders']:
+                return JsonResponse({'message': 'No recent Digikey orders found'})
+            salesorder_id = history['orders'][0]['salesorder_id']
+            print(f"[IMPORT_DIGIKEY_ORDER] Using most recent order: {salesorder_id}")
+
+        # Get order details from Digikey
+        order_data = Digikey.get_digikey_order_details(self, salesorder_id)
+        if order_data['error_status'] != 'OK':
+            return JsonResponse({'message': order_data['error_status']})
+
+        # Match and update line items
+        matched_items = []
+        unmatched_items = []
+
+        for po_item in order.lines.all():
+            sku = po_item.part.SKU
+            matched = False
+
+            for dk_item in order_data['line_items']:
+                if dk_item['digi_key_part_number'] == sku:
+                    # Update price
+                    old_price = po_item.purchase_price
+                    po_item.purchase_price = dk_item['unit_price']
+                    po_item.save()
+
+                    matched_items.append({
+                        'SKU': sku,
+                        'old_price': float(old_price) if old_price else 0,
+                        'new_price': dk_item['unit_price'],
+                        'quantity': dk_item['quantity']
+                    })
+                    matched = True
+                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Matched {sku}: ${old_price} -> ${dk_item['unit_price']}")
+                    break
+
+            if not matched:
+                unmatched_items.append({'SKU': sku})
+                print(f"[IMPORT_DIGIKEY_ORDER] ✗ No match for {sku}")
+
+        # Store Digikey order info in PO metadata
+        MetaAccess.set_value(self, order, 'DigiKeyOrderId', str(salesorder_id))
+        MetaAccess.set_value(self, order, 'DigiKeyOrderDate', datetime.today().strftime('%Y-%m-%d'))
+        if order_data.get('line_items') and order_data['line_items'][0].get('invoice_id'):
+            MetaAccess.set_value(self, order, 'DigiKeyInvoiceId', str(order_data['line_items'][0]['invoice_id']))
+
+        # Mark PO as placed
+        try:
+            if hasattr(order, 'place_order') and callable(order.place_order):
+                order.place_order()
+                print(f"[IMPORT_DIGIKEY_ORDER] ✓ PO marked as placed")
+            else:
+                # Fallback: set status directly if place_order method doesn't exist
+                order.status = 20  # 20 = Placed in InvenTree
+                order.save()
+                print(f"[IMPORT_DIGIKEY_ORDER] ✓ PO status set to Placed")
+        except Exception as e:
+            print(f"[IMPORT_DIGIKEY_ORDER] ✗ Could not mark PO as placed: {e}")
+
+        result = {
+            'message': 'OK',
+            'salesorder_id': salesorder_id,
+            'matched_count': len(matched_items),
+            'unmatched_count': len(unmatched_items),
+            'matched_items': matched_items,
+            'unmatched_items': unmatched_items,
+            'currency': order_data.get('currency', 'USD')
+        }
+
+        print(f"[IMPORT_DIGIKEY_ORDER] ========================================")
+        print(f"[IMPORT_DIGIKEY_ORDER] ✓ Import complete: {len(matched_items)} matched, {len(unmatched_items)} unmatched")
+
+        return JsonResponse(result)
 
 # ---------------------------- add_supplierpart -------------------------------
     def add_supplierpart(self, request):
