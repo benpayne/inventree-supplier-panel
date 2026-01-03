@@ -584,6 +584,9 @@ class Digikey():
             print(f"[DIGIKEY] ✗ Failed to parse response: {e}")
             return {'error_status': str(e)}
 
+        # Log full response for debugging extra fields
+        print(f"[DIGIKEY] Order response keys: {order_data.keys()}")
+
         # Parse the order details - handle both camelCase and snake_case
         result = {
             'error_status': 'OK',
@@ -591,8 +594,17 @@ class Digikey():
             'purchase_order': order_data.get('PurchaseOrder') or order_data.get('purchase_order', ''),
             'customer_id': order_data.get('CustomerId') or order_data.get('customer_id'),
             'currency': order_data.get('Currency') or order_data.get('currency', 'USD'),
-            'line_items': []
+            'line_items': [],
+            # Extra costs
+            'shipping_cost': float(order_data.get('ShippingCost') or order_data.get('shipping_cost') or 0),
+            'tax': float(order_data.get('Tax') or order_data.get('tax') or 0),
+            'tariff': float(order_data.get('Tariff') or order_data.get('tariff') or order_data.get('Duty') or order_data.get('duty') or 0),
+            'merchandise_total': float(order_data.get('MerchandiseTotal') or order_data.get('merchandise_total') or 0),
+            'order_total': float(order_data.get('OrderTotal') or order_data.get('order_total') or 0),
         }
+
+        # Log extra costs found
+        print(f"[DIGIKEY] Extra costs - Shipping: ${result['shipping_cost']}, Tax: ${result['tax']}, Tariff: ${result['tariff']}")
 
         # Parse line items
         raw_items = order_data.get('LineItems') or order_data.get('line_items', [])

@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.urls import re_path
 
 from order.api import PurchaseOrderDetail
-from order.models import PurchaseOrder
+from order.models import PurchaseOrder, PurchaseOrderExtraLine
 from part.api import PartDetail
 from part.models import Part, PartParameter, PartParameterTemplate, PartCategory
 from plugin import InvenTreePlugin
@@ -572,18 +572,47 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         if order_data.get('line_items') and order_data['line_items'][0].get('invoice_id'):
             MetaAccess.set_value(self, order, 'DigiKeyInvoiceId', str(order_data['line_items'][0]['invoice_id']))
 
-        # Mark PO as placed
-        try:
-            if hasattr(order, 'place_order') and callable(order.place_order):
-                order.place_order()
-                print(f"[IMPORT_DIGIKEY_ORDER] ✓ PO marked as placed")
-            else:
-                # Fallback: set status directly if place_order method doesn't exist
-                order.status = 20  # 20 = Placed in InvenTree
-                order.save()
-                print(f"[IMPORT_DIGIKEY_ORDER] ✓ PO status set to Placed")
-        except Exception as e:
-            print(f"[IMPORT_DIGIKEY_ORDER] ✗ Could not mark PO as placed: {e}")
+        # Add extra line items for shipping, tax, and tariffs
+        extra_lines_added = []
+        currency = order_data.get('currency', 'USD')
+
+        # Helper to add or update extra line
+        def add_extra_line(description, price, reference=''):
+            if price and price > 0:
+                # Check if line already exists
+                existing = PurchaseOrderExtraLine.objects.filter(
+                    order=order,
+                    description=description
+                ).first()
+                if existing:
+                    existing.price = price
+                    existing.save()
+                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Updated extra line: {description} = ${price}")
+                else:
+                    PurchaseOrderExtraLine.objects.create(
+                        order=order,
+                        description=description,
+                        quantity=1,
+                        price=price,
+                        price_currency=currency,
+                        reference=reference
+                    )
+                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Added extra line: {description} = ${price}")
+                extra_lines_added.append({'description': description, 'price': price})
+
+        # Add shipping cost
+        if order_data.get('shipping_cost'):
+            add_extra_line('Shipping', order_data['shipping_cost'], f'DK Order {salesorder_id}')
+
+        # Add tax
+        if order_data.get('tax'):
+            add_extra_line('Tax', order_data['tax'], f'DK Order {salesorder_id}')
+
+        # Add tariff/duty
+        if order_data.get('tariff'):
+            add_extra_line('Tariff/Duty', order_data['tariff'], f'DK Order {salesorder_id}')
+
+        # Note: Not automatically marking PO as "Placed" - user should review and approve
 
         result = {
             'message': 'OK',
@@ -592,6 +621,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             'unmatched_count': len(unmatched_items),
             'matched_items': matched_items,
             'unmatched_items': unmatched_items,
+            'extra_lines': extra_lines_added,
             'currency': order_data.get('currency', 'USD')
         }
 
