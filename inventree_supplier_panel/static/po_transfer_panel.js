@@ -212,10 +212,17 @@ async function importDigikeyOrder(poPk) {
     importDetails.style.display = 'none';
 
     try {
+        // Get CSRF token from cookie
+        const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+
         const response = await fetch(`/plugin/suppliercart/importorder/${poPk}/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken || '',
             },
             body: JSON.stringify(requestBody)
         });

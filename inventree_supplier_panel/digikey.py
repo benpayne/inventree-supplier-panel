@@ -511,7 +511,8 @@ class Digikey():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-        url = f'https://api.digikey.com/OrderDetails/v3/History?startDate={start_date}&endDate={end_date}'
+        # Try the newer /orders endpoint first (API was updated from /History to /orders)
+        url = f'https://api.digikey.com/OrderDetails/v3/orders?startDate={start_date}&endDate={end_date}'
         header = {
             'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
@@ -519,16 +520,22 @@ class Digikey():
         }
 
         print(f"[DIGIKEY] Fetching orders from {start_date} to {end_date}")
+        print(f"[DIGIKEY] URL: {url}")
         response = Wrappers.get_request(self, url, headers=header)
 
+        print(f"[DIGIKEY] Response status: {response.status_code}")
         if response.status_code != 200:
             print(f"[DIGIKEY] ✗ Order history request failed: {response.status_code}")
-            return {'error_status': f'API error: {response.status_code}', 'orders': []}
+            print(f"[DIGIKEY] Response body: {response.text[:500]}")
+            return {'error_status': f'API error: {response.status_code} - {response.text[:200]}', 'orders': []}
 
         try:
             response_data = response.json()
+            print(f"[DIGIKEY] Response data type: {type(response_data)}")
+            print(f"[DIGIKEY] Response data: {str(response_data)[:500]}")
         except Exception as e:
             print(f"[DIGIKEY] ✗ Failed to parse response: {e}")
+            print(f"[DIGIKEY] Raw response: {response.text[:500]}")
             return {'error_status': str(e), 'orders': []}
 
         # Parse the order list
@@ -556,7 +563,8 @@ class Digikey():
             print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
             return {'error_status': token['message']}
 
-        url = f'https://api.digikey.com/OrderDetails/v3/Status/{salesorder_id}'
+        # Try the newer /salesorder endpoint (API was updated from /Status/ to /salesorder/)
+        url = f'https://api.digikey.com/OrderDetails/v3/salesorder/{salesorder_id}'
         header = {
             'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
