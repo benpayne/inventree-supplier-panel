@@ -511,8 +511,8 @@ class Digikey():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-        # Try the newer /orders endpoint first (API was updated from /History to /orders)
-        url = f'https://api.digikey.com/OrderDetails/v3/orders?startDate={start_date}&endDate={end_date}'
+        # Use /History endpoint with capitalized query params (per Digikey API spec)
+        url = f'https://api.digikey.com/OrderDetails/v3/History?StartDate={start_date}&EndDate={end_date}'
         header = {
             'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
@@ -563,8 +563,8 @@ class Digikey():
             print(f"[DIGIKEY] ✗ Token refresh failed: {token['message']}")
             return {'error_status': token['message']}
 
-        # Try the newer /salesorder endpoint (API was updated from /Status/ to /salesorder/)
-        url = f'https://api.digikey.com/OrderDetails/v3/salesorder/{salesorder_id}'
+        # Use /Status endpoint (per Digikey API spec)
+        url = f'https://api.digikey.com/OrderDetails/v3/Status/{salesorder_id}'
         header = {
             'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
