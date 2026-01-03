@@ -47,9 +47,9 @@ function renderPanel(target, data, poPk, supplierName) {
             </div>
 
             <div id="order-select-container-${poPk}" style="display: none; margin-bottom: 10px;">
-                <select class="form-control" id="order-select-${poPk}" style="max-width: 400px;">
-                    <option value="">Loading orders...</option>
-                </select>
+                <label for="order-id-input-${poPk}">Digikey Sales Order ID:</label>
+                <input type="text" class="form-control" id="order-id-input-${poPk}"
+                       placeholder="e.g., 96611225" style="max-width: 200px; display: inline-block; margin-left: 10px;">
             </div>
 
             <button type='button' class='btn btn-success' id='import-order-btn-${poPk}' title='Import order data from Digikey'>
@@ -131,13 +131,12 @@ function setupImportOrderHandlers(poPk) {
     const orderSelectContainer = document.getElementById(`order-select-container-${poPk}`);
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
 
-    // Toggle order dropdown visibility based on checkbox
-    useRecentCheckbox.addEventListener('change', async () => {
+    // Toggle order ID input visibility based on checkbox
+    useRecentCheckbox.addEventListener('change', () => {
         if (useRecentCheckbox.checked) {
             orderSelectContainer.style.display = 'none';
         } else {
             orderSelectContainer.style.display = 'block';
-            await loadDigikeyOrders(poPk);
         }
     });
 
@@ -185,7 +184,7 @@ async function loadDigikeyOrders(poPk) {
  */
 async function importDigikeyOrder(poPk) {
     const useRecentCheckbox = document.getElementById(`use-recent-${poPk}`);
-    const orderSelect = document.getElementById(`order-select-${poPk}`);
+    const orderIdInput = document.getElementById(`order-id-input-${poPk}`);
     const loader = document.getElementById(`import-loader-${poPk}`);
     const result = document.getElementById(`import-result-${poPk}`);
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
@@ -196,9 +195,9 @@ async function importDigikeyOrder(poPk) {
     if (useRecentCheckbox.checked) {
         requestBody.use_recent = true;
     } else {
-        requestBody.salesorder_id = orderSelect.value;
+        requestBody.salesorder_id = orderIdInput.value.trim();
         if (!requestBody.salesorder_id) {
-            result.textContent = 'Please select an order';
+            result.textContent = 'Please enter a Digikey Sales Order ID';
             result.className = 'alert alert-block alert-warning';
             result.style.display = 'block';
             return;
