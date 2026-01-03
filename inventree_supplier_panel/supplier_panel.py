@@ -519,9 +519,15 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                     po_item.purchase_price = dk_item['unit_price']
                     po_item.save()
 
+                    # Handle Money objects - get the amount as float
+                    if old_price:
+                        old_price_float = float(old_price.amount) if hasattr(old_price, 'amount') else float(old_price)
+                    else:
+                        old_price_float = 0.0
+
                     matched_items.append({
                         'SKU': sku,
-                        'old_price': float(old_price) if old_price else 0,
+                        'old_price': old_price_float,
                         'new_price': dk_item['unit_price'],
                         'quantity': dk_item['quantity']
                     })
