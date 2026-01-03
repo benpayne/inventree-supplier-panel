@@ -512,15 +512,35 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         dk_skus = [item['digi_key_part_number'] for item in order_data['line_items']]
         print(f"[IMPORT_DIGIKEY_ORDER] Digikey order SKUs: {dk_skus}")
 
+        def normalize_digikey_sku(sku):
+            """Normalize Digikey SKU by removing packaging suffixes for comparison.
+
+            Digikey uses suffixes like:
+            - -1-ND, -2-ND, -6-ND (numeric packaging codes)
+            - CT-ND (Cut Tape), TR-ND (Tape & Reel), DKR-ND (Digi-Reel)
+            """
+            import re
+            if not sku:
+                return ''
+            # Remove -ND suffix first
+            s = sku.rstrip('-ND').rstrip('-nd')
+            if s.endswith('-ND') or s.endswith('-nd'):
+                s = s[:-3]
+            # Remove packaging suffixes: -1, -2, -6, CT, TR, DKR
+            s = re.sub(r'(-[126]|CT|TR|DKR)$', '', s, flags=re.IGNORECASE)
+            return s.upper()
+
         for po_item in order.lines.all():
             sku = po_item.part.SKU
-            print(f"[IMPORT_DIGIKEY_ORDER] Looking for PO SKU: '{sku}'")
+            sku_normalized = normalize_digikey_sku(sku)
+            print(f"[IMPORT_DIGIKEY_ORDER] Looking for PO SKU: '{sku}' (normalized: '{sku_normalized}')")
             matched = False
 
             for dk_item in order_data['line_items']:
                 dk_sku = dk_item['digi_key_part_number']
-                # Try exact match first, then try without trailing suffixes
-                if dk_sku == sku or dk_sku.rstrip('-ND') == sku.rstrip('-ND'):
+                dk_sku_normalized = normalize_digikey_sku(dk_sku)
+                # Match on normalized SKUs (ignoring packaging differences)
+                if dk_sku_normalized == sku_normalized:
                     # Update price
                     old_price = po_item.purchase_price
                     po_item.purchase_price = dk_item['unit_price']
@@ -539,7 +559,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                         'quantity': dk_item['quantity']
                     })
                     matched = True
-                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Matched {sku}: ${old_price} -> ${dk_item['unit_price']}")
+                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Matched {sku} -> {dk_sku}: ${old_price_float} -> ${dk_item['unit_price']}")
                     break
 
             if not matched:
