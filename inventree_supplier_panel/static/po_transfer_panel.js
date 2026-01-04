@@ -60,8 +60,31 @@ function renderPanel(target, data, poPk, supplierName) {
             <div id="import-details-${poPk}" style='display: none;'>
                 <b>Digikey Order:</b> <span id="dk-order-id-${poPk}"></span><br>
                 <b>Matched Items:</b> <span id="matched-count-${poPk}"></span><br>
+                <div id="tracking-info-${poPk}" style="margin-top: 10px;"></div>
             </div>
             <div id="import-table-${poPk}"></div>
+
+            <hr>
+            <h5>Add Extra Costs</h5>
+            <p class="text-muted">Manually add shipping, tax, and tariff costs as extra line items.</p>
+            <div class="row" style="max-width: 600px;">
+                <div class="col-4">
+                    <label for="shipping-cost-${poPk}">Shipping ($):</label>
+                    <input type="number" step="0.01" class="form-control" id="shipping-cost-${poPk}" placeholder="0.00">
+                </div>
+                <div class="col-4">
+                    <label for="tax-cost-${poPk}">Tax ($):</label>
+                    <input type="number" step="0.01" class="form-control" id="tax-cost-${poPk}" placeholder="0.00">
+                </div>
+                <div class="col-4">
+                    <label for="tariff-cost-${poPk}">Tariff ($):</label>
+                    <input type="number" step="0.01" class="form-control" id="tariff-cost-${poPk}" placeholder="0.00">
+                </div>
+            </div>
+            <button type='button' class='btn btn-secondary' id='add-costs-btn-${poPk}' title='Add extra costs to PO' style="margin-top: 10px;">
+                <span class='fas fa-plus'></span> Add Extra Costs
+            </button>
+            <div class='alert alert-block' id='costs-result-${poPk}' style='display: none; margin-top: 10px;'>&nbsp;</div>
     ` : '';
 
     // Create the panel HTML structure
@@ -120,6 +143,7 @@ function renderPanel(target, data, poPk, supplierName) {
     // Set up Digikey-specific import order handlers
     if (supplierName === 'Digikey') {
         setupImportOrderHandlers(poPk);
+        setupExtraCostsHandlers(poPk);
     }
 }
 
@@ -142,6 +166,81 @@ function setupImportOrderHandlers(poPk) {
 
     // Import button click handler
     importBtn.addEventListener('click', () => importDigikeyOrder(poPk));
+}
+
+/**
+ * Set up event handlers for the extra costs section
+ */
+function setupExtraCostsHandlers(poPk) {
+    const addCostsBtn = document.getElementById(`add-costs-btn-${poPk}`);
+    addCostsBtn.addEventListener('click', () => addExtraCosts(poPk));
+}
+
+/**
+ * Add extra costs (shipping, tax, tariff) to the PO
+ */
+async function addExtraCosts(poPk) {
+    const shippingInput = document.getElementById(`shipping-cost-${poPk}`);
+    const taxInput = document.getElementById(`tax-cost-${poPk}`);
+    const tariffInput = document.getElementById(`tariff-cost-${poPk}`);
+    const result = document.getElementById(`costs-result-${poPk}`);
+    const addCostsBtn = document.getElementById(`add-costs-btn-${poPk}`);
+
+    const shipping = parseFloat(shippingInput.value) || 0;
+    const tax = parseFloat(taxInput.value) || 0;
+    const tariff = parseFloat(tariffInput.value) || 0;
+
+    if (shipping === 0 && tax === 0 && tariff === 0) {
+        result.textContent = 'Please enter at least one cost value';
+        result.className = 'alert alert-block alert-warning';
+        result.style.display = 'block';
+        return;
+    }
+
+    addCostsBtn.disabled = true;
+
+    try {
+        const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+
+        const response = await fetch(`/plugin/suppliercart/addextracosts/${poPk}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken || '',
+            },
+            body: JSON.stringify({
+                shipping: shipping,
+                tax: tax,
+                tariff: tariff
+            })
+        });
+        const data = await response.json();
+
+        addCostsBtn.disabled = false;
+
+        if (data.message === 'OK') {
+            result.textContent = `Added extra costs: ${data.added_lines.join(', ')}`;
+            result.className = 'alert alert-block alert-success';
+            result.style.display = 'block';
+            // Clear inputs after success
+            shippingInput.value = '';
+            taxInput.value = '';
+            tariffInput.value = '';
+        } else {
+            result.textContent = data.message || 'Failed to add extra costs';
+            result.className = 'alert alert-block alert-danger';
+            result.style.display = 'block';
+        }
+    } catch (error) {
+        addCostsBtn.disabled = false;
+        result.textContent = `Error: ${error.message}`;
+        result.className = 'alert alert-block alert-danger';
+        result.style.display = 'block';
+        console.error('Add extra costs error:', error);
+    }
 }
 
 /**
@@ -241,6 +340,22 @@ async function importDigikeyOrder(poPk) {
             document.getElementById(`dk-order-id-${poPk}`).textContent = data.salesorder_id;
             document.getElementById(`matched-count-${poPk}`).textContent =
                 `${data.matched_count} matched, ${data.unmatched_count} unmatched`;
+
+            // Display tracking info if available
+            const trackingDiv = document.getElementById(`tracking-info-${poPk}`);
+            if (data.tracking && data.tracking.carrier) {
+                let trackingHtml = `<b>Tracking:</b> ${data.tracking.carrier} - `;
+                if (data.tracking.tracking_url) {
+                    trackingHtml += `<a href="${data.tracking.tracking_url}" target="_blank">${data.tracking.tracking_number}</a>`;
+                } else {
+                    trackingHtml += data.tracking.tracking_number;
+                }
+                trackingHtml += `<br><b>Shipping Method:</b> ${data.tracking.shipping_method || 'N/A'}`;
+                if (data.tracking.delivery_date) {
+                    trackingHtml += `<br><b>Delivery Date:</b> ${data.tracking.delivery_date}`;
+                }
+                trackingDiv.innerHTML = trackingHtml;
+            }
 
             // Display the import results table
             if (data.matched_items && data.matched_items.length > 0) {

@@ -316,6 +316,7 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             # Digikey order import endpoints
             re_path(r'digikeyorders/', self.get_digikey_orders, name='digikey-orders'),
             re_path(r'importorder/(?P<pk>\d+)/', self.import_digikey_order, name='import-order'),
+            re_path(r'addextracosts/(?P<pk>\d+)/', self.add_extra_costs, name='add-extra-costs'),
         ]
 
 # --------------------------- get_partdata ------------------------------------
@@ -625,6 +626,18 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         # Note: Not automatically marking PO as "Placed" - user should review and approve
 
+        # Prepare tracking info for response
+        tracking_response = None
+        if order_data.get('tracking') and len(order_data['tracking']) > 0:
+            t = order_data['tracking'][0]
+            tracking_response = {
+                'carrier': t.get('carrier', ''),
+                'tracking_number': t.get('tracking_number', ''),
+                'tracking_url': t.get('tracking_url', ''),
+                'shipping_method': t.get('shipping_method', ''),
+                'delivery_date': t.get('delivery_date', '')
+            }
+
         result = {
             'message': 'OK',
             'salesorder_id': salesorder_id,
@@ -633,13 +646,79 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             'matched_items': matched_items,
             'unmatched_items': unmatched_items,
             'extra_lines': extra_lines_added,
-            'currency': order_data.get('currency', 'USD')
+            'currency': order_data.get('currency', 'USD'),
+            'tracking': tracking_response
         }
 
         print(f"[IMPORT_DIGIKEY_ORDER] ========================================")
         print(f"[IMPORT_DIGIKEY_ORDER] ✓ Import complete: {len(matched_items)} matched, {len(unmatched_items)} unmatched")
 
         return JsonResponse(result)
+
+# ---------------------------- add_extra_costs -------------------------------
+    def add_extra_costs(self, request, pk):
+        """Add extra cost line items (shipping, tax, tariff) to a PO."""
+        print(f"\n[ADD_EXTRA_COSTS] ========================================")
+        print(f"[ADD_EXTRA_COSTS] PO PK: {pk}")
+
+        try:
+            order = PurchaseOrder.objects.get(pk=pk)
+        except PurchaseOrder.DoesNotExist:
+            return JsonResponse({'message': f'PO with pk={pk} not found'}, status=404)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'message': 'Invalid JSON'}, status=400)
+
+        shipping = float(data.get('shipping', 0) or 0)
+        tax = float(data.get('tax', 0) or 0)
+        tariff = float(data.get('tariff', 0) or 0)
+
+        print(f"[ADD_EXTRA_COSTS] Shipping: ${shipping}, Tax: ${tax}, Tariff: ${tariff}")
+
+        # Get currency from settings
+        currency = InvenTreeSetting.get_setting('INVENTREE_DEFAULT_CURRENCY') or 'USD'
+        added_lines = []
+
+        # Helper to add or update extra line
+        def add_or_update_line(description, price):
+            if price and price > 0:
+                # Check if line already exists
+                existing = PurchaseOrderExtraLine.objects.filter(
+                    order=order,
+                    description=description
+                ).first()
+                if existing:
+                    existing.price = price
+                    existing.save()
+                    print(f"[ADD_EXTRA_COSTS] ✓ Updated: {description} = ${price}")
+                else:
+                    PurchaseOrderExtraLine.objects.create(
+                        order=order,
+                        description=description,
+                        quantity=1,
+                        price=price,
+                        price_currency=currency
+                    )
+                    print(f"[ADD_EXTRA_COSTS] ✓ Added: {description} = ${price}")
+                added_lines.append(f"{description}: ${price:.2f}")
+
+        if shipping > 0:
+            add_or_update_line('Shipping', shipping)
+        if tax > 0:
+            add_or_update_line('Tax', tax)
+        if tariff > 0:
+            add_or_update_line('Tariff/Duty', tariff)
+
+        if not added_lines:
+            return JsonResponse({'message': 'No costs provided'})
+
+        print(f"[ADD_EXTRA_COSTS] ✓ Complete: {added_lines}")
+        return JsonResponse({
+            'message': 'OK',
+            'added_lines': added_lines
+        })
 
 # ---------------------------- add_supplierpart -------------------------------
     def add_supplierpart(self, request):
