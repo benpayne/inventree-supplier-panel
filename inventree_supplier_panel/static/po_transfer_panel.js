@@ -41,15 +41,14 @@ function renderPanel(target, data, poPk, supplierName) {
             <h5>Import Order from Digikey</h5>
             <p class="text-muted">After placing your order on Digikey, import the actual prices and order number back into this PO.</p>
 
-            <div class="form-check mb-2">
-                <input type="checkbox" class="form-check-input" id="use-recent-${poPk}" checked>
-                <label class="form-check-label" for="use-recent-${poPk}">Use most recent order</label>
-            </div>
-
-            <div id="order-select-container-${poPk}" style="display: none; margin-bottom: 10px;">
-                <label for="order-id-input-${poPk}">Digikey Sales Order ID:</label>
-                <input type="text" class="form-control" id="order-id-input-${poPk}"
-                       placeholder="e.g., 96611225" style="max-width: 200px; display: inline-block; margin-left: 10px;">
+            <div id="order-select-container-${poPk}" style="margin-bottom: 10px;">
+                <label for="order-select-${poPk}">Select Digikey Order:</label>
+                <select class="form-control" id="order-select-${poPk}" style="max-width: 400px; display: inline-block; margin-left: 10px;">
+                    <option value="">Loading orders...</option>
+                </select>
+                <button type='button' class='btn btn-sm btn-outline-secondary' id='refresh-orders-btn-${poPk}' title='Refresh order list' style="margin-left: 5px;">
+                    <span class='fas fa-sync'></span>
+                </button>
             </div>
 
             <button type='button' class='btn btn-success' id='import-order-btn-${poPk}' title='Import order data from Digikey'>
@@ -151,18 +150,14 @@ function renderPanel(target, data, poPk, supplierName) {
  * Set up event handlers for the import order section
  */
 function setupImportOrderHandlers(poPk) {
-    const useRecentCheckbox = document.getElementById(`use-recent-${poPk}`);
-    const orderSelectContainer = document.getElementById(`order-select-container-${poPk}`);
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
+    const refreshBtn = document.getElementById(`refresh-orders-btn-${poPk}`);
 
-    // Toggle order ID input visibility based on checkbox
-    useRecentCheckbox.addEventListener('change', () => {
-        if (useRecentCheckbox.checked) {
-            orderSelectContainer.style.display = 'none';
-        } else {
-            orderSelectContainer.style.display = 'block';
-        }
-    });
+    // Load orders on init
+    loadDigikeyOrders(poPk);
+
+    // Refresh button handler
+    refreshBtn.addEventListener('click', () => loadDigikeyOrders(poPk));
 
     // Import button click handler
     importBtn.addEventListener('click', () => importDigikeyOrder(poPk));
@@ -282,26 +277,22 @@ async function loadDigikeyOrders(poPk) {
  * Import order data from Digikey
  */
 async function importDigikeyOrder(poPk) {
-    const useRecentCheckbox = document.getElementById(`use-recent-${poPk}`);
-    const orderIdInput = document.getElementById(`order-id-input-${poPk}`);
+    const orderSelect = document.getElementById(`order-select-${poPk}`);
     const loader = document.getElementById(`import-loader-${poPk}`);
     const result = document.getElementById(`import-result-${poPk}`);
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
     const importDetails = document.getElementById(`import-details-${poPk}`);
 
-    // Build request body
-    const requestBody = {};
-    if (useRecentCheckbox.checked) {
-        requestBody.use_recent = true;
-    } else {
-        requestBody.salesorder_id = orderIdInput.value.trim();
-        if (!requestBody.salesorder_id) {
-            result.textContent = 'Please enter a Digikey Sales Order ID';
-            result.className = 'alert alert-block alert-warning';
-            result.style.display = 'block';
-            return;
-        }
+    // Get selected order ID
+    const salesorderId = orderSelect.value;
+    if (!salesorderId) {
+        result.textContent = 'Please select a Digikey order';
+        result.className = 'alert alert-block alert-warning';
+        result.style.display = 'block';
+        return;
     }
+
+    const requestBody = { salesorder_id: salesorderId };
 
     // Show loader, disable button
     loader.style.visibility = 'visible';

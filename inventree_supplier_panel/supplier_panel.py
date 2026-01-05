@@ -573,6 +573,14 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         if order_data.get('line_items') and order_data['line_items'][0].get('invoice_id'):
             MetaAccess.set_value(self, order, 'DigiKeyInvoiceId', str(order_data['line_items'][0]['invoice_id']))
 
+        # Update PO fields with Digikey order info
+        # Set supplier_reference to the Digikey order number
+        order.supplier_reference = str(salesorder_id)
+        # Set link to the Digikey order page
+        order.link = f'https://www.digikey.com/en/mylists/order/{salesorder_id}'
+        order.save()
+        print(f"[IMPORT_DIGIKEY_ORDER] ✓ Updated PO supplier_reference={salesorder_id}, link={order.link}")
+
         # Store tracking info
         if order_data.get('tracking'):
             tracking_info = order_data['tracking'][0] if order_data['tracking'] else {}
