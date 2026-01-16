@@ -512,7 +512,8 @@ class Digikey():
         start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
         # Use /History endpoint with capitalized query params (per Digikey API spec)
-        url = f'https://api.digikey.com/OrderDetails/v3/History?StartDate={start_date}&EndDate={end_date}'
+        # IncludeCompanyOrders=true includes orders from all users in the organization
+        url = f'https://api.digikey.com/OrderDetails/v3/History?StartDate={start_date}&EndDate={end_date}&IncludeCompanyOrders=true'
         header = {
             'Authorization': f"Bearer {self.get_setting('DIGIKEY_TOKEN')}",
             'X-DIGIKEY-Client-Id': self.get_setting('DIGIKEY_CLIENT_ID'),
