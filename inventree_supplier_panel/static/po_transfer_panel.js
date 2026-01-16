@@ -50,6 +50,11 @@ function renderPanel(target, data, poPk, supplierName) {
                     <span class='fas fa-sync'></span>
                 </button>
             </div>
+            <div id="order-manual-container-${poPk}" style="margin-bottom: 10px;">
+                <label for="order-manual-${poPk}">Or enter Order ID manually:</label>
+                <input type="text" class="form-control" id="order-manual-${poPk}"
+                       placeholder="e.g., 96611225" style="max-width: 200px; display: inline-block; margin-left: 10px;">
+            </div>
 
             <button type='button' class='btn btn-success' id='import-order-btn-${poPk}' title='Import order data from Digikey'>
                 <span class='fas fa-download'></span> Import Order
@@ -278,15 +283,20 @@ async function loadDigikeyOrders(poPk) {
  */
 async function importDigikeyOrder(poPk) {
     const orderSelect = document.getElementById(`order-select-${poPk}`);
+    const orderManual = document.getElementById(`order-manual-${poPk}`);
     const loader = document.getElementById(`import-loader-${poPk}`);
     const result = document.getElementById(`import-result-${poPk}`);
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
     const importDetails = document.getElementById(`import-details-${poPk}`);
 
-    // Get selected order ID
-    const salesorderId = orderSelect.value;
+    // Get order ID from dropdown or manual input (manual takes precedence if filled)
+    let salesorderId = orderManual.value.trim();
     if (!salesorderId) {
-        result.textContent = 'Please select a Digikey order';
+        salesorderId = orderSelect.value;
+    }
+
+    if (!salesorderId) {
+        result.textContent = 'Please select or enter a Digikey order ID';
         result.className = 'alert alert-block alert-warning';
         result.style.display = 'block';
         return;
