@@ -114,9 +114,10 @@ function renderPanel(target, data, poPk, supplierName) {
                 </button>
             </div>
             <div id="mouser-order-manual-container-${poPk}" style="margin-bottom: 10px;">
-                <label for="mouser-order-manual-${poPk}">Or enter Order Number manually:</label>
+                <label for="mouser-order-manual-${poPk}">Or enter Web Order # manually:</label>
                 <input type="text" class="form-control" id="mouser-order-manual-${poPk}"
-                       placeholder="e.g., 1234567890" style="max-width: 200px; display: inline-block; margin-left: 10px;">
+                       placeholder="e.g., 37867228" style="max-width: 200px; display: inline-block; margin-left: 10px;">
+                <small class="text-muted" style="display: block; margin-left: 10px;">This is the Web Order # from your Mouser order confirmation email</small>
             </div>
 
             <button type='button' class='btn btn-success' id='mouser-import-order-btn-${poPk}' title='Import order data from Mouser'>
@@ -125,8 +126,10 @@ function renderPanel(target, data, poPk, supplierName) {
             <div width="30px" id="mouser-import-loader-${poPk}" class="wheel"></div>
             <div class='alert alert-block' id='mouser-import-result-${poPk}' style='display: none;'>&nbsp;</div>
             <div id="mouser-import-details-${poPk}" style='display: none;'>
-                <b>Mouser Order:</b> <span id="mouser-order-id-${poPk}"></span><br>
+                <b>Web Order #:</b> <span id="mouser-web-order-id-${poPk}"></span><br>
+                <b>Sales Order #:</b> <span id="mouser-sales-order-id-${poPk}"></span><br>
                 <b>Matched Items:</b> <span id="mouser-matched-count-${poPk}"></span><br>
+                <div id="mouser-extra-costs-info-${poPk}"></div>
             </div>
             <div id="mouser-import-table-${poPk}"></div>
 
@@ -575,9 +578,19 @@ async function importMouserOrder(poPk) {
 
             // Show import details
             importDetails.style.display = 'block';
-            document.getElementById(`mouser-order-id-${poPk}`).textContent = data.order_number;
+            document.getElementById(`mouser-web-order-id-${poPk}`).textContent = data.order_number || data.web_order_id || '';
+            document.getElementById(`mouser-sales-order-id-${poPk}`).textContent = data.sales_order_id || '';
             document.getElementById(`mouser-matched-count-${poPk}`).textContent =
                 `${data.matched_count} matched, ${data.unmatched_count} unmatched`;
+
+            // Display extra costs info if available
+            const extraCostsDiv = document.getElementById(`mouser-extra-costs-info-${poPk}`);
+            let extraCostsHtml = '';
+            if (data.extra_lines && data.extra_lines.length > 0) {
+                extraCostsHtml = '<b>Extra Costs Added:</b> ';
+                extraCostsHtml += data.extra_lines.map(line => `${line.description}: $${line.price.toFixed(2)}`).join(', ');
+            }
+            extraCostsDiv.innerHTML = extraCostsHtml;
 
             // Display the import results table
             if (data.matched_items && data.matched_items.length > 0) {

@@ -403,8 +403,15 @@ class Mouser():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-        # Try the Order History API endpoint
-        url = f'https://api.mouser.com/api/v1/orderhistory/byDateFilter?apiKey={api_key}'
+        # Try different Order History API endpoint patterns
+        # Pattern 1: /api/v1/orderhistory/ByDateFilter (capitalized)
+        endpoints_to_try = [
+            ('POST', f'https://api.mouser.com/api/v1/orderhistory/ByDateFilter?apiKey={api_key}'),
+            ('POST', f'https://api.mouser.com/api/v1.0/orderhistory/ByDateFilter?apiKey={api_key}'),
+            ('POST', f'https://api.mouser.com/api/v2/orderhistory/ByDateFilter?apiKey={api_key}'),
+            ('GET', f'https://api.mouser.com/api/v1/orderhistory?apiKey={api_key}&startDate={start_date}&endDate={end_date}'),
+        ]
+
         header = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         body = {
             'DateFilter': {
@@ -414,8 +421,22 @@ class Mouser():
         }
 
         print(f"[MOUSER] Fetching orders from {start_date} to {end_date}")
-        print(f"[MOUSER] URL: {url}")
-        response = Wrappers.post_request(self, json.dumps(body), url, header)
+
+        response = None
+        for method, url in endpoints_to_try:
+            print(f"[MOUSER] Trying {method} {url}")
+            if method == 'POST':
+                response = Wrappers.post_request(self, json.dumps(body), url, header)
+            else:
+                response = Wrappers.get_request(self, url, headers=header)
+
+            print(f"[MOUSER] Response status: {response.status_code}")
+            if response.status_code == 200:
+                break
+            print(f"[MOUSER] Response: {response.text[:200]}")
+
+        if response is None:
+            return {'error_status': 'No endpoints worked', 'orders': []}
 
         print(f"[MOUSER] Response status: {response.status_code}")
         if response.status_code != 200:
@@ -500,15 +521,17 @@ class Mouser():
             print(f"[MOUSER] ✗ API error: {error_msg}")
             return {'error_status': error_msg}
 
-        # Parse the order details - adapt field names based on actual API response
+        # Parse the order details - using actual Mouser API field names
+        # Web Order # is what user enters, Sales Order # (OrderID) is Mouser's internal ID
         result = {
             'error_status': 'OK',
-            'order_number': order_data.get('OrderNumber') or order_data.get('SalesOrderNumber') or order_number,
-            'web_order_id': order_data.get('WebOrderNumber') or order_data.get('WebOrderId', ''),
+            'order_number': order_number,  # This is the Web Order # the user entered
+            'sales_order_id': order_data.get('OrderID') or order_data.get('SalesOrderNumber', ''),  # Mouser's Sales Order #
+            'web_order_id': order_number,  # Same as order_number for clarity
             'po_number': order_data.get('PONumber') or order_data.get('CustomerPO', ''),
             'currency': order_data.get('CurrencyCode') or order_data.get('Currency', 'USD'),
-            'shipping_cost': float(order_data.get('ShippingCost') or order_data.get('Shipping') or 0),
-            'tax': float(order_data.get('Tax') or order_data.get('SalesTax') or 0),
+            'shipping_cost': float(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost') or 0),
+            'tax': float(order_data.get('TaxAmount') or order_data.get('Tax') or 0),
             'merchandise_total': float(order_data.get('MerchandiseTotal') or order_data.get('Subtotal') or 0),
             'order_total': float(order_data.get('OrderTotal') or order_data.get('Total') or 0),
             'line_items': []

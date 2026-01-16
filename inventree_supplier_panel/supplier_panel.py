@@ -845,6 +845,8 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         result = {
             'message': 'OK',
             'order_number': order_number,
+            'web_order_id': order_data.get('web_order_id', order_number),
+            'sales_order_id': order_data.get('sales_order_id', ''),
             'matched_count': len(matched_items),
             'unmatched_count': len(unmatched_items),
             'matched_items': matched_items,
