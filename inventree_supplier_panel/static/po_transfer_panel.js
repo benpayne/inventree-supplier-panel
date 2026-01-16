@@ -410,7 +410,7 @@ function createImportResultsTable(poPk, data) {
     // Create table head
     const thead = document.createElement('THEAD');
     const headRow = document.createElement('TR');
-    ['SKU', 'Old Price', 'New Price', 'Quantity'].forEach(header => {
+    ['SKU', 'Old Price', 'New Price', 'Old Qty', 'New Qty'].forEach(header => {
         const th = document.createElement('TH');
         th.textContent = header;
         headRow.appendChild(th);
@@ -442,9 +442,18 @@ function createImportResultsTable(poPk, data) {
         }
         tr.appendChild(td);
 
-        // Quantity
+        // Old Quantity
         td = document.createElement('TD');
-        td.textContent = item.quantity;
+        td.textContent = item.old_quantity || item.quantity || '';
+        tr.appendChild(td);
+
+        // New Quantity
+        td = document.createElement('TD');
+        td.textContent = item.new_quantity || item.quantity || '';
+        if (item.new_quantity && item.old_quantity && item.new_quantity !== item.old_quantity) {
+            td.style.color = 'orange';
+            td.style.fontWeight = 'bold';
+        }
         tr.appendChild(td);
 
         tbody.appendChild(tr);
@@ -460,7 +469,7 @@ function createImportResultsTable(poPk, data) {
         tr.appendChild(td);
 
         td = document.createElement('TD');
-        td.colSpan = 3;
+        td.colSpan = 4;
         td.textContent = 'Not found in Digikey order';
         td.style.color = '#856404';
         tr.appendChild(td);

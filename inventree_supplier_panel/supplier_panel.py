@@ -548,9 +548,13 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                 dk_sku_normalized = normalize_digikey_sku(dk_sku)
                 # Match on normalized SKUs (ignoring packaging differences)
                 if dk_sku_normalized == sku_normalized:
-                    # Update price
+                    # Store old values
                     old_price = po_item.purchase_price
+                    old_quantity = po_item.quantity
+
+                    # Update price and quantity from Digikey order
                     po_item.purchase_price = dk_item['unit_price']
+                    po_item.quantity = dk_item['quantity']
                     po_item.save()
 
                     # Handle Money objects - get the amount as float
@@ -563,10 +567,11 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                         'SKU': sku,
                         'old_price': old_price_float,
                         'new_price': dk_item['unit_price'],
-                        'quantity': dk_item['quantity']
+                        'old_quantity': old_quantity,
+                        'new_quantity': dk_item['quantity']
                     })
                     matched = True
-                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Matched {sku} -> {dk_sku}: ${old_price_float} -> ${dk_item['unit_price']}")
+                    print(f"[IMPORT_DIGIKEY_ORDER] ✓ Matched {sku} -> {dk_sku}: ${old_price_float} -> ${dk_item['unit_price']}, qty {old_quantity} -> {dk_item['quantity']}")
                     break
 
             if not matched:
