@@ -380,3 +380,155 @@ class Mouser():
                          'error_status': 'OK',
                          }
         return (shopping_cart)
+
+    # -------------------- Order Import Functions --------------------
+    # These functions retrieve order data from Mouser to import actual
+    # prices and order numbers back into InvenTree POs.
+
+    def get_mouser_order_history(self, days_back=90):
+        """
+        Get recent Mouser orders from Order History API.
+        Returns a list of orders with order_number, date, and web_order_id.
+        """
+        from datetime import datetime, timedelta
+
+        print(f"\n[MOUSER] Getting order history for last {days_back} days...")
+
+        api_key = self.get_setting('MOUSERORDERKEY')
+        if not api_key:
+            print("[MOUSER] ✗ MOUSERORDERKEY not configured")
+            return {'error_status': 'MOUSERORDERKEY not configured', 'orders': []}
+
+        # Calculate date range
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        # Try the Order History API endpoint
+        url = f'https://api.mouser.com/api/v1/orderhistory/byDateFilter?apiKey={api_key}'
+        header = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        body = {
+            'DateFilter': {
+                'StartDate': start_date,
+                'EndDate': end_date
+            }
+        }
+
+        print(f"[MOUSER] Fetching orders from {start_date} to {end_date}")
+        print(f"[MOUSER] URL: {url}")
+        response = Wrappers.post_request(self, json.dumps(body), url, header)
+
+        print(f"[MOUSER] Response status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"[MOUSER] ✗ Order history request failed: {response.status_code}")
+            print(f"[MOUSER] Response body: {response.text[:500]}")
+            return {'error_status': f'API error: {response.status_code} - {response.text[:200]}', 'orders': []}
+
+        try:
+            response_data = response.json()
+            print(f"[MOUSER] Response data type: {type(response_data)}")
+            print(f"[MOUSER] Response data: {str(response_data)[:500]}")
+        except Exception as e:
+            print(f"[MOUSER] ✗ Failed to parse response: {e}")
+            print(f"[MOUSER] Raw response: {response.text[:500]}")
+            return {'error_status': str(e), 'orders': []}
+
+        # Check for errors in response
+        if isinstance(response_data, dict) and response_data.get('Errors'):
+            error_msg = response_data['Errors'][0].get('Message', 'Unknown error')
+            print(f"[MOUSER] ✗ API error: {error_msg}")
+            return {'error_status': error_msg, 'orders': []}
+
+        # Parse the order list - format may vary based on actual API response
+        orders = []
+        order_list = response_data.get('OrderHistoryItems') or response_data.get('Orders') or response_data
+        if isinstance(order_list, list):
+            for order in order_list:
+                orders.append({
+                    'order_number': order.get('OrderNumber') or order.get('SalesOrderNumber') or order.get('WebOrderNumber'),
+                    'date_entered': order.get('OrderDate') or order.get('DateEntered') or order.get('CreatedDate'),
+                    'web_order_id': order.get('WebOrderNumber') or order.get('WebOrderId'),
+                    'po_number': order.get('PONumber') or order.get('CustomerPO', '')
+                })
+
+        print(f"[MOUSER] ✓ Found {len(orders)} orders")
+        return {'error_status': 'OK', 'orders': orders}
+
+    def get_mouser_order_details(self, order_number):
+        """
+        Get detailed order information including line items with actual prices.
+        """
+        print(f"\n[MOUSER] Getting order details for order {order_number}...")
+
+        api_key = self.get_setting('MOUSERORDERKEY')
+        if not api_key:
+            print("[MOUSER] ✗ MOUSERORDERKEY not configured")
+            return {'error_status': 'MOUSERORDERKEY not configured'}
+
+        # Try GET request for order details
+        url = f'https://api.mouser.com/api/v1/order/{order_number}?apiKey={api_key}'
+        header = {'Accept': 'application/json'}
+
+        print(f"[MOUSER] Fetching order {order_number}")
+        print(f"[MOUSER] URL: {url}")
+        response = Wrappers.get_request(self, url, headers=header)
+
+        print(f"[MOUSER] Response status: {response.status_code}")
+        if response.status_code != 200:
+            # Try alternative endpoint format
+            print(f"[MOUSER] Trying alternative endpoint...")
+            url_alt = f'https://api.mouser.com/api/v1/order/byordernumber?apiKey={api_key}'
+            body = {'OrderNumber': order_number}
+            response = Wrappers.post_request(self, json.dumps(body), url_alt, {'Content-Type': 'application/json', 'Accept': 'application/json'})
+            print(f"[MOUSER] Alt response status: {response.status_code}")
+
+        if response.status_code != 200:
+            print(f"[MOUSER] ✗ Order details request failed: {response.status_code}")
+            print(f"[MOUSER] Response body: {response.text[:500]}")
+            return {'error_status': f'API error: {response.status_code}'}
+
+        try:
+            order_data = response.json()
+            print(f"[MOUSER] Order response keys: {order_data.keys() if isinstance(order_data, dict) else 'list'}")
+            print(f"[MOUSER] Order data: {str(order_data)[:1000]}")
+        except Exception as e:
+            print(f"[MOUSER] ✗ Failed to parse response: {e}")
+            return {'error_status': str(e)}
+
+        # Check for errors
+        if isinstance(order_data, dict) and order_data.get('Errors'):
+            error_msg = order_data['Errors'][0].get('Message', 'Unknown error')
+            print(f"[MOUSER] ✗ API error: {error_msg}")
+            return {'error_status': error_msg}
+
+        # Parse the order details - adapt field names based on actual API response
+        result = {
+            'error_status': 'OK',
+            'order_number': order_data.get('OrderNumber') or order_data.get('SalesOrderNumber') or order_number,
+            'web_order_id': order_data.get('WebOrderNumber') or order_data.get('WebOrderId', ''),
+            'po_number': order_data.get('PONumber') or order_data.get('CustomerPO', ''),
+            'currency': order_data.get('CurrencyCode') or order_data.get('Currency', 'USD'),
+            'shipping_cost': float(order_data.get('ShippingCost') or order_data.get('Shipping') or 0),
+            'tax': float(order_data.get('Tax') or order_data.get('SalesTax') or 0),
+            'merchandise_total': float(order_data.get('MerchandiseTotal') or order_data.get('Subtotal') or 0),
+            'order_total': float(order_data.get('OrderTotal') or order_data.get('Total') or 0),
+            'line_items': []
+        }
+
+        # Parse line items
+        raw_items = order_data.get('OrderLines') or order_data.get('LineItems') or order_data.get('Items', [])
+        for item in raw_items:
+            result['line_items'].append({
+                'mouser_part_number': item.get('MouserPartNumber') or item.get('PartNumber', ''),
+                'manufacturer_part_number': item.get('MfrPartNumber') or item.get('ManufacturerPartNumber', ''),
+                'manufacturer': item.get('Manufacturer', ''),
+                'description': item.get('Description', ''),
+                'quantity': int(item.get('Quantity') or item.get('QuantityOrdered', 0)),
+                'unit_price': float(item.get('UnitPrice') or item.get('Price', 0)),
+                'extended_price': float(item.get('ExtendedPrice') or item.get('LineTotal', 0)),
+                'customer_part_number': item.get('CustomerPartNumber') or item.get('CustPartNumber', '')
+            })
+
+        print(f"[MOUSER] ✓ Order {order_number} has {len(result['line_items'])} line items")
+        print(f"[MOUSER] Extra costs - Shipping: ${result['shipping_cost']}, Tax: ${result['tax']}")
+
+        return result

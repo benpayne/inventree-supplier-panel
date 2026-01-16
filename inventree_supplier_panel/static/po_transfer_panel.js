@@ -35,8 +35,8 @@ export function renderMouserPanel(target, data) {
  * Common panel rendering function for both suppliers
  */
 function renderPanel(target, data, poPk, supplierName) {
-    // Build import order section HTML (only for Digikey)
-    const importOrderSection = supplierName === 'Digikey' ? `
+    // Build import order section HTML for Digikey
+    const digikeyImportSection = supplierName === 'Digikey' ? `
             <hr>
             <h5>Import Order from Digikey</h5>
             <p class="text-muted">After placing your order on Digikey, import the actual prices and order number back into this PO.</p>
@@ -98,6 +98,57 @@ function renderPanel(target, data, poPk, supplierName) {
             </button>
     ` : '';
 
+    // Build import order section HTML for Mouser
+    const mouserImportSection = supplierName === 'Mouser' ? `
+            <hr>
+            <h5>Import Order from Mouser</h5>
+            <p class="text-muted">After placing your order on Mouser, import the actual prices and order number back into this PO.</p>
+
+            <div id="mouser-order-select-container-${poPk}" style="margin-bottom: 10px;">
+                <label for="mouser-order-select-${poPk}">Select Mouser Order:</label>
+                <select class="form-control" id="mouser-order-select-${poPk}" style="max-width: 400px; display: inline-block; margin-left: 10px;">
+                    <option value="">Loading orders...</option>
+                </select>
+                <button type='button' class='btn btn-sm btn-outline-secondary' id='mouser-refresh-orders-btn-${poPk}' title='Refresh order list' style="margin-left: 5px;">
+                    <span class='fas fa-sync'></span>
+                </button>
+            </div>
+            <div id="mouser-order-manual-container-${poPk}" style="margin-bottom: 10px;">
+                <label for="mouser-order-manual-${poPk}">Or enter Order Number manually:</label>
+                <input type="text" class="form-control" id="mouser-order-manual-${poPk}"
+                       placeholder="e.g., 1234567890" style="max-width: 200px; display: inline-block; margin-left: 10px;">
+            </div>
+
+            <button type='button' class='btn btn-success' id='mouser-import-order-btn-${poPk}' title='Import order data from Mouser'>
+                <span class='fas fa-download'></span> Import Order
+            </button>
+            <div width="30px" id="mouser-import-loader-${poPk}" class="wheel"></div>
+            <div class='alert alert-block' id='mouser-import-result-${poPk}' style='display: none;'>&nbsp;</div>
+            <div id="mouser-import-details-${poPk}" style='display: none;'>
+                <b>Mouser Order:</b> <span id="mouser-order-id-${poPk}"></span><br>
+                <b>Matched Items:</b> <span id="mouser-matched-count-${poPk}"></span><br>
+            </div>
+            <div id="mouser-import-table-${poPk}"></div>
+
+            <hr>
+            <h5>Add Extra Costs</h5>
+            <p class="text-muted">Manually add shipping and tax costs as extra line items.</p>
+            <div class="row" style="max-width: 400px;">
+                <div class="col-6">
+                    <label for="mouser-shipping-cost-${poPk}">Shipping ($):</label>
+                    <input type="number" step="0.01" class="form-control" id="mouser-shipping-cost-${poPk}" placeholder="0.00">
+                </div>
+                <div class="col-6">
+                    <label for="mouser-tax-cost-${poPk}">Tax ($):</label>
+                    <input type="number" step="0.01" class="form-control" id="mouser-tax-cost-${poPk}" placeholder="0.00">
+                </div>
+            </div>
+            <button type='button' class='btn btn-secondary' id='mouser-add-costs-btn-${poPk}' title='Add extra costs to PO' style="margin-top: 10px;">
+                <span class='fas fa-plus'></span> Add Extra Costs
+            </button>
+            <div class='alert alert-block' id='mouser-costs-result-${poPk}' style='display: none; margin-top: 10px;'>&nbsp;</div>
+    ` : '';
+
     // Create the panel HTML structure
     target.innerHTML = `
         <div class="supplier-cart-panel">
@@ -138,7 +189,8 @@ function renderPanel(target, data, poPk, supplierName) {
                 <b>Cart date:</b> <span id="cart_date-${poPk}"></span><br>
             </div>
             <div id="myDynamicTable-${poPk}"></div>
-            ${importOrderSection}
+            ${digikeyImportSection}
+            ${mouserImportSection}
         </div>
     `;
 
@@ -153,16 +205,22 @@ function renderPanel(target, data, poPk, supplierName) {
 
     // Set up Digikey-specific import order handlers
     if (supplierName === 'Digikey') {
-        setupImportOrderHandlers(poPk);
-        setupExtraCostsHandlers(poPk);
+        setupDigikeyImportOrderHandlers(poPk);
+        setupDigikeyExtraCostsHandlers(poPk);
         setupTokenRegenHandler(poPk, data.context?.oauth_url);
+    }
+
+    // Set up Mouser-specific import order handlers
+    if (supplierName === 'Mouser') {
+        setupMouserImportOrderHandlers(poPk);
+        setupMouserExtraCostsHandlers(poPk);
     }
 }
 
 /**
- * Set up event handlers for the import order section
+ * Set up event handlers for Digikey import order section
  */
-function setupImportOrderHandlers(poPk) {
+function setupDigikeyImportOrderHandlers(poPk) {
     const importBtn = document.getElementById(`import-order-btn-${poPk}`);
     const refreshBtn = document.getElementById(`refresh-orders-btn-${poPk}`);
 
@@ -177,11 +235,36 @@ function setupImportOrderHandlers(poPk) {
 }
 
 /**
- * Set up event handlers for the extra costs section
+ * Set up event handlers for Digikey extra costs section
  */
-function setupExtraCostsHandlers(poPk) {
+function setupDigikeyExtraCostsHandlers(poPk) {
     const addCostsBtn = document.getElementById(`add-costs-btn-${poPk}`);
-    addCostsBtn.addEventListener('click', () => addExtraCosts(poPk));
+    addCostsBtn.addEventListener('click', () => addDigikeyExtraCosts(poPk));
+}
+
+/**
+ * Set up event handlers for Mouser import order section
+ */
+function setupMouserImportOrderHandlers(poPk) {
+    const importBtn = document.getElementById(`mouser-import-order-btn-${poPk}`);
+    const refreshBtn = document.getElementById(`mouser-refresh-orders-btn-${poPk}`);
+
+    // Load orders on init
+    loadMouserOrders(poPk);
+
+    // Refresh button handler
+    refreshBtn.addEventListener('click', () => loadMouserOrders(poPk));
+
+    // Import button click handler
+    importBtn.addEventListener('click', () => importMouserOrder(poPk));
+}
+
+/**
+ * Set up event handlers for Mouser extra costs section
+ */
+function setupMouserExtraCostsHandlers(poPk) {
+    const addCostsBtn = document.getElementById(`mouser-add-costs-btn-${poPk}`);
+    addCostsBtn.addEventListener('click', () => addMouserExtraCosts(poPk));
 }
 
 /**
@@ -197,9 +280,9 @@ function setupTokenRegenHandler(poPk, oauthUrl) {
 }
 
 /**
- * Add extra costs (shipping, tax, tariff) to the PO
+ * Add extra costs (shipping, tax, tariff) to the PO - Digikey version
  */
-async function addExtraCosts(poPk) {
+async function addDigikeyExtraCosts(poPk) {
     const shippingInput = document.getElementById(`shipping-cost-${poPk}`);
     const taxInput = document.getElementById(`tax-cost-${poPk}`);
     const tariffInput = document.getElementById(`tariff-cost-${poPk}`);
@@ -398,7 +481,273 @@ async function importDigikeyOrder(poPk) {
 }
 
 /**
- * Create table showing import results
+ * Load Mouser orders into the dropdown
+ */
+async function loadMouserOrders(poPk) {
+    const orderSelect = document.getElementById(`mouser-order-select-${poPk}`);
+    orderSelect.innerHTML = '<option value="">Loading orders...</option>';
+
+    try {
+        const response = await fetch('/plugin/suppliercart/mouserorders/');
+        const data = await response.json();
+
+        if (data.message !== 'OK') {
+            orderSelect.innerHTML = `<option value="">Error: ${data.message}</option>`;
+            return;
+        }
+
+        if (!data.orders || data.orders.length === 0) {
+            orderSelect.innerHTML = '<option value="">No recent orders found</option>';
+            return;
+        }
+
+        orderSelect.innerHTML = '';
+        data.orders.forEach(order => {
+            const option = document.createElement('option');
+            option.value = order.order_number;
+            const dateStr = order.date_entered ? new Date(order.date_entered).toLocaleDateString() : '';
+            option.textContent = `${order.order_number} - ${dateStr} ${order.po_number ? '(' + order.po_number + ')' : ''}`;
+            orderSelect.appendChild(option);
+        });
+    } catch (error) {
+        orderSelect.innerHTML = `<option value="">Error loading orders</option>`;
+        console.error('Error loading Mouser orders:', error);
+    }
+}
+
+/**
+ * Import order data from Mouser
+ */
+async function importMouserOrder(poPk) {
+    const orderSelect = document.getElementById(`mouser-order-select-${poPk}`);
+    const orderManual = document.getElementById(`mouser-order-manual-${poPk}`);
+    const loader = document.getElementById(`mouser-import-loader-${poPk}`);
+    const result = document.getElementById(`mouser-import-result-${poPk}`);
+    const importBtn = document.getElementById(`mouser-import-order-btn-${poPk}`);
+    const importDetails = document.getElementById(`mouser-import-details-${poPk}`);
+
+    // Get order number from dropdown or manual input (manual takes precedence if filled)
+    let orderNumber = orderManual.value.trim();
+    if (!orderNumber) {
+        orderNumber = orderSelect.value;
+    }
+
+    if (!orderNumber) {
+        result.textContent = 'Please select or enter a Mouser order number';
+        result.className = 'alert alert-block alert-warning';
+        result.style.display = 'block';
+        return;
+    }
+
+    const requestBody = { order_number: orderNumber };
+
+    // Show loader, disable button
+    loader.style.visibility = 'visible';
+    importBtn.disabled = true;
+    result.style.display = 'none';
+    importDetails.style.display = 'none';
+
+    try {
+        // Get CSRF token from cookie
+        const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+
+        const response = await fetch(`/plugin/suppliercart/importmouserorder/${poPk}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken || '',
+            },
+            body: JSON.stringify(requestBody)
+        });
+        const data = await response.json();
+
+        // Hide loader
+        loader.style.visibility = 'hidden';
+        importBtn.disabled = false;
+
+        if (data.message === 'OK') {
+            result.textContent = `Successfully imported order ${data.order_number}`;
+            result.className = 'alert alert-block alert-success';
+            result.style.display = 'block';
+
+            // Show import details
+            importDetails.style.display = 'block';
+            document.getElementById(`mouser-order-id-${poPk}`).textContent = data.order_number;
+            document.getElementById(`mouser-matched-count-${poPk}`).textContent =
+                `${data.matched_count} matched, ${data.unmatched_count} unmatched`;
+
+            // Display the import results table
+            if (data.matched_items && data.matched_items.length > 0) {
+                createMouserImportResultsTable(poPk, data);
+            }
+        } else {
+            result.textContent = data.message || 'Import failed';
+            result.className = 'alert alert-block alert-danger';
+            result.style.display = 'block';
+        }
+    } catch (error) {
+        loader.style.visibility = 'hidden';
+        importBtn.disabled = false;
+        result.textContent = `Error: ${error.message}`;
+        result.className = 'alert alert-block alert-danger';
+        result.style.display = 'block';
+        console.error('Import Mouser order error:', error);
+    }
+}
+
+/**
+ * Add extra costs (shipping, tax) to the PO - Mouser version
+ */
+async function addMouserExtraCosts(poPk) {
+    const shippingInput = document.getElementById(`mouser-shipping-cost-${poPk}`);
+    const taxInput = document.getElementById(`mouser-tax-cost-${poPk}`);
+    const result = document.getElementById(`mouser-costs-result-${poPk}`);
+    const addCostsBtn = document.getElementById(`mouser-add-costs-btn-${poPk}`);
+
+    const shipping = parseFloat(shippingInput.value) || 0;
+    const tax = parseFloat(taxInput.value) || 0;
+
+    if (shipping === 0 && tax === 0) {
+        result.textContent = 'Please enter at least one cost value';
+        result.className = 'alert alert-block alert-warning';
+        result.style.display = 'block';
+        return;
+    }
+
+    addCostsBtn.disabled = true;
+
+    try {
+        const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+
+        const response = await fetch(`/plugin/suppliercart/addextracosts/${poPk}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken || '',
+            },
+            body: JSON.stringify({
+                shipping: shipping,
+                tax: tax,
+                tariff: 0
+            })
+        });
+        const data = await response.json();
+
+        addCostsBtn.disabled = false;
+
+        if (data.message === 'OK') {
+            result.textContent = `Added extra costs: ${data.added_lines.join(', ')}`;
+            result.className = 'alert alert-block alert-success';
+            result.style.display = 'block';
+            // Clear inputs after success
+            shippingInput.value = '';
+            taxInput.value = '';
+        } else {
+            result.textContent = data.message || 'Failed to add extra costs';
+            result.className = 'alert alert-block alert-danger';
+            result.style.display = 'block';
+        }
+    } catch (error) {
+        addCostsBtn.disabled = false;
+        result.textContent = `Error: ${error.message}`;
+        result.className = 'alert alert-block alert-danger';
+        result.style.display = 'block';
+        console.error('Add extra costs error:', error);
+    }
+}
+
+/**
+ * Create table showing Mouser import results
+ */
+function createMouserImportResultsTable(poPk, data) {
+    const tableDiv = document.getElementById(`mouser-import-table-${poPk}`);
+    tableDiv.innerHTML = '';
+
+    const table = document.createElement('TABLE');
+    table.classList.add('table', 'table-condensed', 'table-striped');
+
+    // Create table head
+    const thead = document.createElement('THEAD');
+    const headRow = document.createElement('TR');
+    ['SKU', 'Old Price', 'New Price', 'Old Qty', 'New Qty'].forEach(header => {
+        const th = document.createElement('TH');
+        th.textContent = header;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    // Create table body
+    const tbody = document.createElement('TBODY');
+    data.matched_items.forEach(item => {
+        const tr = document.createElement('TR');
+
+        // SKU
+        let td = document.createElement('TD');
+        td.textContent = item.SKU;
+        tr.appendChild(td);
+
+        // Old Price
+        td = document.createElement('TD');
+        td.textContent = `${data.currency} ${item.old_price.toFixed(4)}`;
+        tr.appendChild(td);
+
+        // New Price
+        td = document.createElement('TD');
+        td.textContent = `${data.currency} ${item.new_price.toFixed(4)}`;
+        if (item.new_price !== item.old_price) {
+            td.style.color = 'green';
+            td.style.fontWeight = 'bold';
+        }
+        tr.appendChild(td);
+
+        // Old Quantity
+        td = document.createElement('TD');
+        td.textContent = item.old_quantity || item.quantity || '';
+        tr.appendChild(td);
+
+        // New Quantity
+        td = document.createElement('TD');
+        td.textContent = item.new_quantity || item.quantity || '';
+        if (item.new_quantity && item.old_quantity && item.new_quantity !== item.old_quantity) {
+            td.style.color = 'orange';
+            td.style.fontWeight = 'bold';
+        }
+        tr.appendChild(td);
+
+        tbody.appendChild(tr);
+    });
+
+    // Add unmatched items with warning
+    data.unmatched_items.forEach(item => {
+        const tr = document.createElement('TR');
+        tr.style.backgroundColor = '#fff3cd';
+
+        let td = document.createElement('TD');
+        td.textContent = item.SKU;
+        tr.appendChild(td);
+
+        td = document.createElement('TD');
+        td.colSpan = 4;
+        td.textContent = 'Not found in Mouser order';
+        td.style.color = '#856404';
+        tr.appendChild(td);
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tableDiv.appendChild(table);
+}
+
+/**
+ * Create table showing import results (Digikey)
  */
 function createImportResultsTable(poPk, data) {
     const tableDiv = document.getElementById(`import-table-${poPk}`);

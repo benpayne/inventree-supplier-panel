@@ -75,6 +75,10 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                         ('German', 'Mouser answers in German')],
             'default': 'German',
         },
+        'MOUSERORDERKEY': {
+            'name': 'Mouser Order API key',
+            'description': 'API key for Mouser order and order history APIs (from Mouser API Hub)',
+        },
         'FARNELLSEARCHKEY': {
             'name': 'Farnell search API key',
             'description': 'Place here your key for the Farnell search API',
@@ -323,6 +327,10 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             re_path(r'digikeyorders/', self.get_digikey_orders, name='digikey-orders'),
             re_path(r'importorder/(?P<pk>\d+)/', self.import_digikey_order, name='import-order'),
             re_path(r'addextracosts/(?P<pk>\d+)/', self.add_extra_costs, name='add-extra-costs'),
+
+            # Mouser order import endpoints
+            re_path(r'mouserorders/', self.get_mouser_orders, name='mouser-orders'),
+            re_path(r'importmouserorder/(?P<pk>\d+)/', self.import_mouser_order, name='import-mouser-order'),
         ]
 
 # --------------------------- get_partdata ------------------------------------
@@ -671,6 +679,182 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
 
         print(f"[IMPORT_DIGIKEY_ORDER] ========================================")
         print(f"[IMPORT_DIGIKEY_ORDER] ✓ Import complete: {len(matched_items)} matched, {len(unmatched_items)} unmatched")
+
+        return JsonResponse(result)
+
+# ---------------------------- get_mouser_orders ------------------------------
+# Returns list of recent Mouser orders for dropdown selection
+
+    def get_mouser_orders(self, request):
+        """Get list of recent Mouser orders for import selection."""
+        print(f"\n[GET_MOUSER_ORDERS] Fetching recent Mouser orders...")
+
+        result = Mouser.get_mouser_order_history(self, days_back=90)
+
+        if result['error_status'] != 'OK':
+            print(f"[GET_MOUSER_ORDERS] ✗ Error: {result['error_status']}")
+            return JsonResponse({
+                'message': result['error_status'],
+                'orders': []
+            })
+
+        print(f"[GET_MOUSER_ORDERS] ✓ Found {len(result['orders'])} orders")
+        return JsonResponse({
+            'message': 'OK',
+            'orders': result['orders']
+        })
+
+# ---------------------------- import_mouser_order ----------------------------
+# Imports actual prices and order number from a placed Mouser order
+
+    def import_mouser_order(self, request, pk):
+        """
+        Import order data from Mouser into InvenTree PO.
+        Updates line item prices, stores order number.
+        """
+        print(f"\n[IMPORT_MOUSER_ORDER] ========================================")
+        print(f"[IMPORT_MOUSER_ORDER] PO PK: {pk}")
+
+        # Get the PO
+        try:
+            order = PurchaseOrder.objects.get(pk=pk)
+        except PurchaseOrder.DoesNotExist:
+            return JsonResponse({'message': 'Purchase order not found'}, status=404)
+
+        # Parse request body
+        try:
+            data = json.loads(request.body)
+            order_number = data.get('order_number')
+            use_recent = data.get('use_recent', False)
+        except json.JSONDecodeError:
+            order_number = None
+            use_recent = True
+
+        print(f"[IMPORT_MOUSER_ORDER] order_number: {order_number}, use_recent: {use_recent}")
+
+        # If use_recent, get the most recent order
+        if use_recent or not order_number:
+            print("[IMPORT_MOUSER_ORDER] Fetching most recent order...")
+            history = Mouser.get_mouser_order_history(self, days_back=90)
+            if history['error_status'] != 'OK':
+                return JsonResponse({'message': history['error_status']})
+            if not history['orders']:
+                return JsonResponse({'message': 'No recent Mouser orders found'})
+            order_number = history['orders'][0]['order_number']
+            print(f"[IMPORT_MOUSER_ORDER] Using most recent order: {order_number}")
+
+        # Get order details from Mouser
+        order_data = Mouser.get_mouser_order_details(self, order_number)
+        if order_data['error_status'] != 'OK':
+            return JsonResponse({'message': order_data['error_status']})
+
+        # Match and update line items
+        matched_items = []
+        unmatched_items = []
+
+        # Log all Mouser SKUs for debugging
+        mouser_skus = [item['mouser_part_number'] for item in order_data['line_items']]
+        print(f"[IMPORT_MOUSER_ORDER] Mouser order SKUs: {mouser_skus}")
+
+        for po_item in order.lines.all():
+            sku = po_item.part.SKU
+            print(f"[IMPORT_MOUSER_ORDER] Looking for PO SKU: '{sku}'")
+            matched = False
+
+            for mouser_item in order_data['line_items']:
+                mouser_sku = mouser_item['mouser_part_number']
+                # Mouser SKUs are typically exact matches (no packaging suffix variations like Digikey)
+                if mouser_sku == sku:
+                    # Store old values
+                    old_price = po_item.purchase_price
+                    old_quantity = po_item.quantity
+
+                    # Update price and quantity from Mouser order
+                    po_item.purchase_price = mouser_item['unit_price']
+                    po_item.quantity = mouser_item['quantity']
+                    po_item.save()
+
+                    # Handle Money objects - get the amount as float
+                    if old_price:
+                        old_price_float = float(old_price.amount) if hasattr(old_price, 'amount') else float(old_price)
+                    else:
+                        old_price_float = 0.0
+
+                    matched_items.append({
+                        'SKU': sku,
+                        'old_price': old_price_float,
+                        'new_price': mouser_item['unit_price'],
+                        'old_quantity': old_quantity,
+                        'new_quantity': mouser_item['quantity']
+                    })
+                    matched = True
+                    print(f"[IMPORT_MOUSER_ORDER] ✓ Matched {sku}: ${old_price_float} -> ${mouser_item['unit_price']}, qty {old_quantity} -> {mouser_item['quantity']}")
+                    break
+
+            if not matched:
+                unmatched_items.append({'SKU': sku})
+                print(f"[IMPORT_MOUSER_ORDER] ✗ No match for {sku}")
+
+        # Store Mouser order info in PO metadata
+        MetaAccess.set_value(self, order, 'MouserOrderId', str(order_number))
+        MetaAccess.set_value(self, order, 'MouserOrderDate', datetime.today().strftime('%Y-%m-%d'))
+        if order_data.get('web_order_id'):
+            MetaAccess.set_value(self, order, 'MouserWebOrderId', str(order_data['web_order_id']))
+
+        # Update PO fields with Mouser order info
+        order.supplier_reference = str(order_number)
+        order.link = f'https://www.mouser.com/OrderHistory/OrderDetail?ordernumber={order_number}'
+        order.save()
+        print(f"[IMPORT_MOUSER_ORDER] ✓ Updated PO supplier_reference={order_number}, link={order.link}")
+
+        # Add extra line items for shipping and tax
+        extra_lines_added = []
+        currency = order_data.get('currency', 'USD')
+
+        # Helper to add or update extra line
+        def add_extra_line(description, price, reference=''):
+            if price and price > 0:
+                existing = PurchaseOrderExtraLine.objects.filter(
+                    order=order,
+                    description=description
+                ).first()
+                if existing:
+                    existing.price = price
+                    existing.save()
+                    print(f"[IMPORT_MOUSER_ORDER] ✓ Updated extra line: {description} = ${price}")
+                else:
+                    PurchaseOrderExtraLine.objects.create(
+                        order=order,
+                        description=description,
+                        quantity=1,
+                        price=price,
+                        price_currency=currency,
+                        reference=reference
+                    )
+                    print(f"[IMPORT_MOUSER_ORDER] ✓ Added extra line: {description} = ${price}")
+                extra_lines_added.append({'description': description, 'price': price})
+
+        # Add shipping cost
+        if order_data.get('shipping_cost'):
+            add_extra_line('Shipping', order_data['shipping_cost'], f'Mouser Order {order_number}')
+
+        # Add tax
+        if order_data.get('tax'):
+            add_extra_line('Tax', order_data['tax'], f'Mouser Order {order_number}')
+
+        result = {
+            'message': 'OK',
+            'order_number': order_number,
+            'matched_count': len(matched_items),
+            'unmatched_count': len(unmatched_items),
+            'matched_items': matched_items,
+            'unmatched_items': unmatched_items,
+            'extra_lines': extra_lines_added,
+            'currency': order_data.get('currency', 'USD')
+        }
+
+        print(f"[IMPORT_MOUSER_ORDER] ========================================")
+        print(f"[IMPORT_MOUSER_ORDER] ✓ Import complete: {len(matched_items)} matched, {len(unmatched_items)} unmatched")
 
         return JsonResponse(result)
 
