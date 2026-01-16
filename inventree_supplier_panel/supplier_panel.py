@@ -206,6 +206,11 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
             if (self.registered_suppliers.get('Digikey', {}).get('is_registered') and
                 po.supplier.pk == self.registered_suppliers['Digikey']['pk']):
                 print(f"[GET_UI_PANELS] Adding Digikey panel")
+                # Build OAuth URL for token regeneration
+                client_id = self.get_setting('DIGIKEY_CLIENT_ID')
+                base_url = InvenTreeSetting.get_setting('INVENTREE_BASE_URL')
+                redirect_uri = f'{base_url}/{self.base_url}digikeytoken/'
+                oauth_url = f'https://api.digikey.com/v1/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}'
                 panels.append({
                     'key': 'digikey-po-transfer',
                     'title': 'Digikey Actions',
@@ -213,7 +218,8 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
                     'source': self.plugin_static_file('po_transfer_panel.js:renderDigikeyPanel'),
                     'context': {
                         'po_pk': target_id,
-                        'supplier': 'Digikey'
+                        'supplier': 'Digikey',
+                        'oauth_url': oauth_url
                     }
                 })
 

@@ -89,6 +89,13 @@ function renderPanel(target, data, poPk, supplierName) {
                 <span class='fas fa-plus'></span> Add Extra Costs
             </button>
             <div class='alert alert-block' id='costs-result-${poPk}' style='display: none; margin-top: 10px;'>&nbsp;</div>
+
+            <hr>
+            <h5>Digikey Authentication</h5>
+            <p class="text-muted">If you're getting token errors, regenerate your Digikey OAuth token.</p>
+            <button type='button' class='btn btn-warning' id='regen-token-btn-${poPk}' title='Regenerate Digikey OAuth token'>
+                <span class='fas fa-key'></span> Regenerate Token
+            </button>
     ` : '';
 
     // Create the panel HTML structure
@@ -148,6 +155,7 @@ function renderPanel(target, data, poPk, supplierName) {
     if (supplierName === 'Digikey') {
         setupImportOrderHandlers(poPk);
         setupExtraCostsHandlers(poPk);
+        setupTokenRegenHandler(poPk, data.context?.oauth_url);
     }
 }
 
@@ -174,6 +182,18 @@ function setupImportOrderHandlers(poPk) {
 function setupExtraCostsHandlers(poPk) {
     const addCostsBtn = document.getElementById(`add-costs-btn-${poPk}`);
     addCostsBtn.addEventListener('click', () => addExtraCosts(poPk));
+}
+
+/**
+ * Set up event handler for token regeneration button
+ */
+function setupTokenRegenHandler(poPk, oauthUrl) {
+    const regenBtn = document.getElementById(`regen-token-btn-${poPk}`);
+    if (regenBtn && oauthUrl) {
+        regenBtn.addEventListener('click', () => {
+            window.open(oauthUrl, 'digikey-auth', 'width=800,height=600');
+        });
+    }
 }
 
 /**
