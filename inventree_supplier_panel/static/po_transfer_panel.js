@@ -509,7 +509,11 @@ async function loadMouserOrders(poPk) {
             const option = document.createElement('option');
             option.value = order.order_number;
             const dateStr = order.date_entered ? new Date(order.date_entered).toLocaleDateString() : '';
-            option.textContent = `${order.order_number} - ${dateStr} ${order.po_number ? '(' + order.po_number + ')' : ''}`;
+            // Format: "WebOrder# - Date (Status)"
+            let label = order.order_number;
+            if (dateStr) label += ` - ${dateStr}`;
+            if (order.status) label += ` (${order.status})`;
+            option.textContent = label;
             orderSelect.appendChild(option);
         });
     } catch (error) {

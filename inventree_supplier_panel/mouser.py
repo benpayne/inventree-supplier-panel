@@ -459,16 +459,21 @@ class Mouser():
             print(f"[MOUSER] ✗ API error: {error_msg}")
             return {'error_status': error_msg, 'orders': []}
 
-        # Parse the order list - format may vary based on actual API response
+        # Parse the order list from Mouser API response
+        # API returns: WebOrderNumber (for import), SalesOrderNumber (internal), DateCreated
         orders = []
         order_list = response_data.get('OrderHistoryItems') or response_data.get('Orders') or response_data
         if isinstance(order_list, list):
             for order in order_list:
                 orders.append({
-                    'order_number': order.get('OrderNumber') or order.get('SalesOrderNumber') or order.get('WebOrderNumber'),
-                    'date_entered': order.get('OrderDate') or order.get('DateEntered') or order.get('CreatedDate'),
-                    'web_order_id': order.get('WebOrderNumber') or order.get('WebOrderId'),
-                    'po_number': order.get('PONumber') or order.get('CustomerPO', '')
+                    # Use WebOrderNumber as order_number - this is what the import endpoint expects
+                    'order_number': order.get('WebOrderNumber') or order.get('OrderNumber'),
+                    'sales_order_number': order.get('SalesOrderNumber', ''),
+                    'date_entered': order.get('DateCreated') or order.get('OrderDate') or order.get('DateEntered', ''),
+                    'web_order_id': order.get('WebOrderNumber') or order.get('WebOrderId', ''),
+                    'po_number': order.get('PoNumber') or order.get('PONumber') or order.get('CustomerPO', ''),
+                    'status': order.get('OrderStatusDisplay', ''),
+                    'buyer': order.get('BuyerName', '')
                 })
 
         print(f"[MOUSER] ✓ Found {len(orders)} orders")
