@@ -405,38 +405,30 @@ class Mouser():
             print("[MOUSER] ✗ MOUSERORDERKEY not configured")
             return {'error_status': 'MOUSERORDERKEY not configured', 'orders': []}
 
-        # Calculate date range
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+        # Calculate date range in mm/dd/yyyy format (Mouser's required format)
+        end_date = datetime.now().strftime('%m/%d/%Y')
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%m/%d/%Y')
 
-        # Try different Order History API endpoint patterns
-        # Pattern 1: /api/v1/orderhistory/ByDateFilter (capitalized)
+        # Mouser Order History API uses GET requests with query parameters
+        # Endpoints from https://api.mouser.com/api/docs/V1:
+        # - /api/v1/orderhistory/ByDateFilter?apiKey=...&dateFilter=ThisMonth
+        # - /api/v1/orderhistory/ByDateRange?apiKey=...&startDate=mm/dd/yyyy&endDate=mm/dd/yyyy
         endpoints_to_try = [
-            ('POST', f'https://api.mouser.com/api/v1/orderhistory/ByDateFilter?apiKey={api_key}'),
-            ('POST', f'https://api.mouser.com/api/v1.0/orderhistory/ByDateFilter?apiKey={api_key}'),
-            ('POST', f'https://api.mouser.com/api/v2/orderhistory/ByDateFilter?apiKey={api_key}'),
-            ('GET', f'https://api.mouser.com/api/v1/orderhistory?apiKey={api_key}&startDate={start_date}&endDate={end_date}'),
+            f'https://api.mouser.com/api/v1/orderhistory/ByDateRange?apiKey={api_key}&startDate={start_date}&endDate={end_date}',
+            f'https://api.mouser.com/api/v1.0/orderhistory/ByDateRange?apiKey={api_key}&startDate={start_date}&endDate={end_date}',
+            f'https://api.mouser.com/api/v1/orderhistory/ByDateFilter?apiKey={api_key}&dateFilter=LastQuarter',
         ]
 
-        header = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        body = {
-            'DateFilter': {
-                'StartDate': start_date,
-                'EndDate': end_date
-            }
-        }
+        header = {'Accept': 'application/json'}
 
         print(f"[MOUSER] Fetching orders from {start_date} to {end_date}")
 
         response = None
-        for method, url in endpoints_to_try:
+        for url in endpoints_to_try:
             # Sanitize URL for logging (hide API key)
             url_safe = url.replace(api_key, '***') if api_key else url
-            print(f"[MOUSER] Trying {method} {url_safe}")
-            if method == 'POST':
-                response = Wrappers.post_request(self, json.dumps(body), url, header)
-            else:
-                response = Wrappers.get_request(self, url, headers=header)
+            print(f"[MOUSER] Trying GET {url_safe}")
+            response = Wrappers.get_request(self, url, headers=header)
 
             print(f"[MOUSER] Response status: {response.status_code}")
             if response.status_code == 200:
@@ -492,8 +484,9 @@ class Mouser():
             print("[MOUSER] ✗ MOUSERORDERKEY not configured")
             return {'error_status': 'MOUSERORDERKEY not configured'}
 
-        # Try GET request for order details
-        url = f'https://api.mouser.com/api/v1/order/{order_number}?apiKey={api_key}'
+        # Try GET request for order details using the correct endpoint
+        # From Mouser API docs: /api/v1/orderhistory/webOrderNumber?apiKey=...&webOrderNumber=...
+        url = f'https://api.mouser.com/api/v1/orderhistory/webOrderNumber?apiKey={api_key}&webOrderNumber={order_number}'
         header = {'Accept': 'application/json'}
 
         print(f"[MOUSER] Fetching order {order_number}")
@@ -501,11 +494,10 @@ class Mouser():
 
         print(f"[MOUSER] Response status: {response.status_code}")
         if response.status_code != 200:
-            # Try alternative endpoint format
-            print(f"[MOUSER] Trying alternative endpoint...")
-            url_alt = f'https://api.mouser.com/api/v1/order/byordernumber?apiKey={api_key}'
-            body = {'OrderNumber': order_number}
-            response = Wrappers.post_request(self, json.dumps(body), url_alt, {'Content-Type': 'application/json', 'Accept': 'application/json'})
+            # Try alternative endpoint - the /order/ endpoint (used for cart-created orders)
+            print(f"[MOUSER] Trying /order/ endpoint...")
+            url_alt = f'https://api.mouser.com/api/v1/order/{order_number}?apiKey={api_key}'
+            response = Wrappers.get_request(self, url_alt, headers=header)
             print(f"[MOUSER] Alt response status: {response.status_code}")
 
         if response.status_code != 200:
