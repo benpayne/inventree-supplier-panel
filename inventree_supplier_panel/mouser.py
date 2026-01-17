@@ -53,6 +53,13 @@ import re
 import json
 
 
+def _sanitize_api_key(text, api_key):
+    """Remove API key from text to avoid exposing it in logs/UI."""
+    if api_key and text:
+        return text.replace(api_key, '***')
+    return text
+
+
 class Mouser():
     # --------------------------- get_mouser_partdata -----------------------------
     def get_mouser_partdata(self, sku, options):
@@ -385,12 +392,6 @@ class Mouser():
     # These functions retrieve order data from Mouser to import actual
     # prices and order numbers back into InvenTree POs.
 
-    def _sanitize_error(self, error_text, api_key):
-        """Remove API key from error messages to avoid exposing it in UI."""
-        if api_key and error_text:
-            return error_text.replace(api_key, '***')
-        return error_text
-
     def get_mouser_order_history(self, days_back=90):
         """
         Get recent Mouser orders from Order History API.
@@ -433,7 +434,7 @@ class Mouser():
             print(f"[MOUSER] Response status: {response.status_code}")
             if response.status_code == 200:
                 break
-            print(f"[MOUSER] Response: {self._sanitize_error(response.text[:200], api_key)}")
+            print(f"[MOUSER] Response: {_sanitize_api_key(response.text[:200], api_key)}")
 
         if response is None:
             return {'error_status': 'No endpoints worked', 'orders': []}
@@ -446,10 +447,10 @@ class Mouser():
         try:
             response_data = response.json()
             print(f"[MOUSER] Response data type: {type(response_data)}")
-            print(f"[MOUSER] Response data: {self._sanitize_error(str(response_data)[:500], api_key)}")
+            print(f"[MOUSER] Response data: {_sanitize_api_key(str(response_data)[:500], api_key)}")
         except Exception as e:
             print(f"[MOUSER] ✗ Failed to parse response: {e}")
-            print(f"[MOUSER] Raw response: {self._sanitize_error(response.text[:500], api_key)}")
+            print(f"[MOUSER] Raw response: {_sanitize_api_key(response.text[:500], api_key)}")
             return {'error_status': 'Failed to parse order history response', 'orders': []}
 
         # Check for errors in response
