@@ -385,6 +385,12 @@ class Mouser():
     # These functions retrieve order data from Mouser to import actual
     # prices and order numbers back into InvenTree POs.
 
+    def _sanitize_error(self, error_text, api_key):
+        """Remove API key from error messages to avoid exposing it in UI."""
+        if api_key and error_text:
+            return error_text.replace(api_key, '***')
+        return error_text
+
     def get_mouser_order_history(self, days_back=90):
         """
         Get recent Mouser orders from Order History API.
@@ -424,7 +430,9 @@ class Mouser():
 
         response = None
         for method, url in endpoints_to_try:
-            print(f"[MOUSER] Trying {method} {url}")
+            # Sanitize URL for logging (hide API key)
+            url_safe = url.replace(api_key, '***') if api_key else url
+            print(f"[MOUSER] Trying {method} {url_safe}")
             if method == 'POST':
                 response = Wrappers.post_request(self, json.dumps(body), url, header)
             else:
@@ -433,25 +441,24 @@ class Mouser():
             print(f"[MOUSER] Response status: {response.status_code}")
             if response.status_code == 200:
                 break
-            print(f"[MOUSER] Response: {response.text[:200]}")
+            print(f"[MOUSER] Response: {self._sanitize_error(response.text[:200], api_key)}")
 
         if response is None:
             return {'error_status': 'No endpoints worked', 'orders': []}
 
-        print(f"[MOUSER] Response status: {response.status_code}")
         if response.status_code != 200:
             print(f"[MOUSER] ✗ Order history request failed: {response.status_code}")
-            print(f"[MOUSER] Response body: {response.text[:500]}")
-            return {'error_status': f'API error: {response.status_code} - {response.text[:200]}', 'orders': []}
+            # Return a user-friendly error without exposing API details
+            return {'error_status': 'Order history not available - please enter Web Order # manually', 'orders': []}
 
         try:
             response_data = response.json()
             print(f"[MOUSER] Response data type: {type(response_data)}")
-            print(f"[MOUSER] Response data: {str(response_data)[:500]}")
+            print(f"[MOUSER] Response data: {self._sanitize_error(str(response_data)[:500], api_key)}")
         except Exception as e:
             print(f"[MOUSER] ✗ Failed to parse response: {e}")
-            print(f"[MOUSER] Raw response: {response.text[:500]}")
-            return {'error_status': str(e), 'orders': []}
+            print(f"[MOUSER] Raw response: {self._sanitize_error(response.text[:500], api_key)}")
+            return {'error_status': 'Failed to parse order history response', 'orders': []}
 
         # Check for errors in response
         if isinstance(response_data, dict) and response_data.get('Errors'):
@@ -490,7 +497,6 @@ class Mouser():
         header = {'Accept': 'application/json'}
 
         print(f"[MOUSER] Fetching order {order_number}")
-        print(f"[MOUSER] URL: {url}")
         response = Wrappers.get_request(self, url, headers=header)
 
         print(f"[MOUSER] Response status: {response.status_code}")
@@ -504,16 +510,14 @@ class Mouser():
 
         if response.status_code != 200:
             print(f"[MOUSER] ✗ Order details request failed: {response.status_code}")
-            print(f"[MOUSER] Response body: {response.text[:500]}")
-            return {'error_status': f'API error: {response.status_code}'}
+            return {'error_status': f'Order not found (error {response.status_code})'}
 
         try:
             order_data = response.json()
             print(f"[MOUSER] Order response keys: {order_data.keys() if isinstance(order_data, dict) else 'list'}")
-            print(f"[MOUSER] Order data: {str(order_data)[:1000]}")
         except Exception as e:
             print(f"[MOUSER] ✗ Failed to parse response: {e}")
-            return {'error_status': str(e)}
+            return {'error_status': 'Failed to parse order response'}
 
         # Check for errors
         if isinstance(order_data, dict) and order_data.get('Errors'):
