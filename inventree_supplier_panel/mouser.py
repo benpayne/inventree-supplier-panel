@@ -528,29 +528,44 @@ class Mouser():
             print(f"[MOUSER] ✗ API error: {error_msg}")
             return {'error_status': error_msg}
 
+        # Helper to parse currency values (removes $ and other currency symbols)
+        def parse_currency(value):
+            if value is None:
+                return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            # Remove currency symbols and commas
+            cleaned = str(value).replace('$', '').replace(',', '').strip()
+            try:
+                return float(cleaned) if cleaned else 0.0
+            except ValueError:
+                return 0.0
+
         # Extract totals from SummaryDetail if available
+        # SummaryDetail contains: MerchandiseTotal, OrderTotal, AdditionalFeesTotal (shipping)
         summary = order_data.get('SummaryDetail') or {}
         shipping_cost = 0.0
         tax = 0.0
         merchandise_total = 0.0
         order_total = 0.0
 
-        # Try to extract from SummaryDetail (new API structure)
+        # Try to extract from SummaryDetail (Mouser API structure)
         if summary:
-            shipping_cost = float(summary.get('ShippingAmount') or summary.get('Shipping') or summary.get('FreightAmount') or 0)
-            tax = float(summary.get('TaxAmount') or summary.get('Tax') or summary.get('SalesTax') or 0)
-            merchandise_total = float(summary.get('MerchandiseTotal') or summary.get('Subtotal') or summary.get('ProductTotal') or 0)
-            order_total = float(summary.get('OrderTotal') or summary.get('GrandTotal') or summary.get('Total') or 0)
+            # AdditionalFeesTotal is shipping in Mouser's API
+            shipping_cost = parse_currency(summary.get('AdditionalFeesTotal') or summary.get('ShippingAmount') or summary.get('Shipping'))
+            tax = parse_currency(summary.get('TaxAmount') or summary.get('Tax') or summary.get('SalesTax'))
+            merchandise_total = parse_currency(summary.get('MerchandiseTotal') or summary.get('Subtotal') or summary.get('ProductTotal'))
+            order_total = parse_currency(summary.get('OrderTotal') or summary.get('GrandTotal') or summary.get('Total'))
 
-        # Fallback to top-level fields (old API structure)
+        # Fallback to top-level fields
         if shipping_cost == 0:
-            shipping_cost = float(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost') or 0)
+            shipping_cost = parse_currency(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost'))
         if tax == 0:
-            tax = float(order_data.get('TaxAmount') or order_data.get('Tax') or 0)
+            tax = parse_currency(order_data.get('TaxAmount') or order_data.get('Tax'))
         if merchandise_total == 0:
-            merchandise_total = float(order_data.get('MerchandiseTotal') or order_data.get('Subtotal') or 0)
+            merchandise_total = parse_currency(order_data.get('MerchandiseTotal') or order_data.get('Subtotal'))
         if order_total == 0:
-            order_total = float(order_data.get('OrderTotal') or order_data.get('Total') or 0)
+            order_total = parse_currency(order_data.get('OrderTotal') or order_data.get('Total'))
 
         # Parse the order details
         result = {
