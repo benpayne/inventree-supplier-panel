@@ -842,6 +842,10 @@ class SupplierCartPanel(UserInterfaceMixin, SettingsMixin, InvenTreePlugin, Urls
         if order_data.get('tax'):
             add_extra_line('Tax', order_data['tax'], f'Mouser Order {order_number}')
 
+        # Add tariff/duty (from AdditionalFeesTotal)
+        if order_data.get('tariff'):
+            add_extra_line('Tariff/Duty', order_data['tariff'], f'Mouser Order {order_number}')
+
         result = {
             'message': 'OK',
             'order_number': order_number,

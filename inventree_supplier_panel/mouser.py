@@ -542,24 +542,28 @@ class Mouser():
                 return 0.0
 
         # Extract totals from SummaryDetail if available
-        # SummaryDetail contains: MerchandiseTotal, OrderTotal, AdditionalFeesTotal (shipping)
+        # SummaryDetail contains: MerchandiseTotal, OrderTotal, AdditionalFeesTotal (tariff/duties)
         summary = order_data.get('SummaryDetail') or {}
         shipping_cost = 0.0
         tax = 0.0
+        tariff = 0.0
         merchandise_total = 0.0
         order_total = 0.0
 
         # Try to extract from SummaryDetail (Mouser API structure)
         if summary:
-            # AdditionalFeesTotal is shipping in Mouser's API
-            shipping_cost = parse_currency(summary.get('AdditionalFeesTotal') or summary.get('ShippingAmount') or summary.get('Shipping'))
+            # AdditionalFeesTotal is tariff/duties in Mouser's API
+            tariff = parse_currency(summary.get('AdditionalFeesTotal'))
+            shipping_cost = parse_currency(summary.get('ShippingAmount') or summary.get('Shipping') or summary.get('FreightAmount'))
             tax = parse_currency(summary.get('TaxAmount') or summary.get('Tax') or summary.get('SalesTax'))
             merchandise_total = parse_currency(summary.get('MerchandiseTotal') or summary.get('Subtotal') or summary.get('ProductTotal'))
             order_total = parse_currency(summary.get('OrderTotal') or summary.get('GrandTotal') or summary.get('Total'))
 
         # Fallback to top-level fields
+        if tariff == 0:
+            tariff = parse_currency(order_data.get('additionalFeesTotal'))
         if shipping_cost == 0:
-            shipping_cost = parse_currency(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost'))
+            shipping_cost = parse_currency(order_data.get('ShippingCost') or order_data.get('Shipping'))
         if tax == 0:
             tax = parse_currency(order_data.get('TaxAmount') or order_data.get('Tax'))
         if merchandise_total == 0:
@@ -577,6 +581,7 @@ class Mouser():
             'currency': order_data.get('CurrencyCode') or order_data.get('Currency', 'USD'),
             'shipping_cost': shipping_cost,
             'tax': tax,
+            'tariff': tariff,
             'merchandise_total': merchandise_total,
             'order_total': order_total,
             'line_items': []
@@ -597,6 +602,6 @@ class Mouser():
             })
 
         print(f"[MOUSER] ✓ Order {order_number} has {len(result['line_items'])} line items")
-        print(f"[MOUSER] Extra costs - Shipping: ${result['shipping_cost']}, Tax: ${result['tax']}")
+        print(f"[MOUSER] Extra costs - Shipping: ${result['shipping_cost']}, Tax: ${result['tax']}, Tariff: ${result['tariff']}")
 
         return result
