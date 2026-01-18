@@ -513,6 +513,11 @@ class Mouser():
         try:
             order_data = response.json()
             print(f"[MOUSER] Order response keys: {order_data.keys() if isinstance(order_data, dict) else 'list'}")
+            # Log SummaryDetail to see shipping/tax structure
+            if order_data.get('SummaryDetail'):
+                print(f"[MOUSER] SummaryDetail: {order_data.get('SummaryDetail')}")
+            if order_data.get('DeliveryDetail'):
+                print(f"[MOUSER] DeliveryDetail: {order_data.get('DeliveryDetail')}")
         except Exception as e:
             print(f"[MOUSER] ✗ Failed to parse response: {e}")
             return {'error_status': 'Failed to parse order response'}
@@ -523,19 +528,42 @@ class Mouser():
             print(f"[MOUSER] ✗ API error: {error_msg}")
             return {'error_status': error_msg}
 
-        # Parse the order details - using actual Mouser API field names
-        # Web Order # is what user enters, Sales Order # (OrderID) is Mouser's internal ID
+        # Extract totals from SummaryDetail if available
+        summary = order_data.get('SummaryDetail') or {}
+        shipping_cost = 0.0
+        tax = 0.0
+        merchandise_total = 0.0
+        order_total = 0.0
+
+        # Try to extract from SummaryDetail (new API structure)
+        if summary:
+            shipping_cost = float(summary.get('ShippingAmount') or summary.get('Shipping') or summary.get('FreightAmount') or 0)
+            tax = float(summary.get('TaxAmount') or summary.get('Tax') or summary.get('SalesTax') or 0)
+            merchandise_total = float(summary.get('MerchandiseTotal') or summary.get('Subtotal') or summary.get('ProductTotal') or 0)
+            order_total = float(summary.get('OrderTotal') or summary.get('GrandTotal') or summary.get('Total') or 0)
+
+        # Fallback to top-level fields (old API structure)
+        if shipping_cost == 0:
+            shipping_cost = float(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost') or 0)
+        if tax == 0:
+            tax = float(order_data.get('TaxAmount') or order_data.get('Tax') or 0)
+        if merchandise_total == 0:
+            merchandise_total = float(order_data.get('MerchandiseTotal') or order_data.get('Subtotal') or 0)
+        if order_total == 0:
+            order_total = float(order_data.get('OrderTotal') or order_data.get('Total') or 0)
+
+        # Parse the order details
         result = {
             'error_status': 'OK',
             'order_number': order_number,  # This is the Web Order # the user entered
-            'sales_order_id': order_data.get('OrderID') or order_data.get('SalesOrderNumber', ''),  # Mouser's Sales Order #
-            'web_order_id': order_number,  # Same as order_number for clarity
+            'sales_order_id': order_data.get('SalesOrderId') or order_data.get('OrderID') or order_data.get('SalesOrderNumber', ''),
+            'web_order_id': order_data.get('WebOrderId') or order_number,
             'po_number': order_data.get('PONumber') or order_data.get('CustomerPO', ''),
             'currency': order_data.get('CurrencyCode') or order_data.get('Currency', 'USD'),
-            'shipping_cost': float(order_data.get('additionalFeesTotal') or order_data.get('ShippingCost') or 0),
-            'tax': float(order_data.get('TaxAmount') or order_data.get('Tax') or 0),
-            'merchandise_total': float(order_data.get('MerchandiseTotal') or order_data.get('Subtotal') or 0),
-            'order_total': float(order_data.get('OrderTotal') or order_data.get('Total') or 0),
+            'shipping_cost': shipping_cost,
+            'tax': tax,
+            'merchandise_total': merchandise_total,
+            'order_total': order_total,
             'line_items': []
         }
 
